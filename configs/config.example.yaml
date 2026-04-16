@@ -1,0 +1,37 @@
+# See `configs/default.yaml` for the canonical example.
+model: llava_onevision
+model_args: "pretrained=your/model-name"
+batch_size: "1"
+device: null
+
+calib_data: coco
+n_samples: 128
+data_path: ""
+image_folder: ""
+interleave_format: false
+few_shot_format: false
+text_data_path: ""
+
+method: gate_only
+pca_k: 32
+pca_sample_size: 512
+beta: 1.0
+
+high_precision_ratio: 0.1
+high_bit: 16
+low_bit: 4
+zero_point: true
+w_group: -1
+
+run_process: true
+pseudo_quant: true
+scale_path: "scale_cache/pca_quant_model.pt"
+results_path: "scale_cache/pca_quant_model.summary.json"
+
+tasks: "mmmu_val"
+limit: null
+output_path: "eval_results"
+seed: "0,1234,1234,1234"
+gen_kwargs: ""
+log_samples: false
+verbosity: "INFO"
