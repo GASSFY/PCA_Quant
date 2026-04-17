@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 from PCA.quantization.quant_funcs import (
     pseudo_quantize_tensor,
-    pseudo_quantize_weight_per_column,
+    pseudo_quantize_weight_with_reserved_columns,
 )
 
 
@@ -54,18 +54,13 @@ def pseudo_quantize_model_weight(
             w = m.weight.data
             if use_mixed and high_precision_channels is not None:
                 key = _linear_layer_key(i, n)
-                bits_per_column = torch.full(
-                    (w.shape[1],),
-                    low_w_bit,
-                    dtype=torch.int32,
-                    device=w.device,
-                )
-                for col_idx in range(w.shape[1]):
-                    if (key, col_idx) in high_precision_channels:
-                        bits_per_column[col_idx] = high_w_bit
-                m.weight.data = pseudo_quantize_weight_per_column(
+                # Mixed path: grouped row-wise quantization + reserved input columns merge-back.
+                m.weight.data = pseudo_quantize_weight_with_reserved_columns(
                     w,
-                    bits_per_column,
+                    q_group_size=q_group_size,
+                    reserved_columns=high_precision_channels,
+                    layer_key=key,
+                    n_bits=low_w_bit,
                     zero_point=zero_point,
                 )
             else:

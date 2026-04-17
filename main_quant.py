@@ -6,7 +6,7 @@ Flow:
   2. Prepare calibration data.
   3. Collect activation second moments and PCA bases.
   4. Compute global channel importance with the selected method.
-  5. Quantize weights with low/high precision column-wise bits.
+  5. Quantize weights with grouped row-wise quantization and reserved columns.
   6. Save quantized weights and a summary json.
 """
 from __future__ import annotations
@@ -32,6 +32,7 @@ from PCA.quantization import (
     pseudo_quantize_model_weight,
     select_high_precision_channels,
 )
+from PCA.quantization.quantize import get_blocks, get_named_linears
 
 
 def parse_args() -> argparse.Namespace:
@@ -103,8 +104,35 @@ def _load_model_and_wrapper(args: argparse.Namespace):
     return lm, process_model
 
 
+def _collect_divisors(n: int) -> list[int]:
+    vals = []
+    for i in range(1, int(n**0.5) + 1):
+        if n % i == 0:
+            vals.append(i)
+            if i * i != n:
+                vals.append(n // i)
+    return sorted(vals)
+
+
+def _validate_group_size_strict(model, q_group_size: int) -> None:
+    if q_group_size <= 0:
+        return
+    layers = get_blocks(model)
+    for i in range(len(layers)):
+        for name, linear in get_named_linears(layers[i]).items():
+            in_features = linear.weight.shape[1]
+            if in_features % q_group_size != 0:
+                divisors = _collect_divisors(in_features)
+                raise ValueError(
+                    "Strict group policy violated for "
+                    f"layers.{i}.{name}: in_features={in_features} is not divisible by w_group={q_group_size}. "
+                    f"Try one of these divisors: {divisors}."
+                )
+
+
 def _run_single(args: argparse.Namespace) -> None:
     lm, process_model = _load_model_and_wrapper(args)
+    _validate_group_size_strict(process_model.model, args.w_group)
 
     if not args.run_process:
         if args.scale_path and os.path.exists(args.scale_path):

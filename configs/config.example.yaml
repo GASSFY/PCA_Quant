@@ -21,7 +21,7 @@ high_precision_ratio: 0.1
 high_bit: 16
 low_bit: 4
 zero_point: true
-w_group: -1
+w_group: 128
 
 run_process: true
 pseudo_quant: true

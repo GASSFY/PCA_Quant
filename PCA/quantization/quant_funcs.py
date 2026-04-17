@@ -1,5 +1,7 @@
-"""Minimal pseudo-quantization helpers for PCA mixed precision."""
+"""Pseudo-quantization helpers for PCA mixed precision."""
 from __future__ import annotations
+
+from typing import Set, Tuple
 
 import torch
 
@@ -44,27 +46,116 @@ def pseudo_quantize_tensor(
 
 
 @torch.no_grad()
-def pseudo_quantize_weight_per_column(
-    weight: torch.Tensor,
-    n_bits_per_column: list[int] | torch.Tensor,
+def _get_row_group_params(
+    tensor_2d: torch.Tensor,
+    n_bits: int,
+    zero_point: bool = True,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Compute scale/zero for each row in a row-group."""
+    assert tensor_2d.dim() == 2
+    x = tensor_2d.float()
+    xmin = x.amin(dim=1, keepdim=True)
+    xmax = x.amax(dim=1, keepdim=True)
+
+    if not zero_point:
+        xmax = torch.maximum(xmin.abs(), xmax)
+        xmin = torch.where(xmin < 0, -xmax, xmin)
+
+    same = (xmin == xmax).squeeze(1)
+    if same.any():
+        xmin = xmin.clone()
+        xmax = xmax.clone()
+        xmin[same.unsqueeze(1)] = -1
+        xmax[same.unsqueeze(1)] = 1
+
+    max_int = (2**n_bits - 1) if zero_point else (2 ** (n_bits - 1) - 1)
+    min_int = 0 if zero_point else -(2 ** (n_bits - 1))
+    scale = (xmax - xmin).clamp(min=_EPS) / max_int
+    zero = (
+        (-torch.round(xmin / scale)).clamp(min_int, max_int)
+        if zero_point
+        else torch.full_like(scale, (max_int + 1) / 2)
+    )
+    return scale, zero
+
+
+def _quant_dequant_with_params(
+    tensor: torch.Tensor,
+    scale: torch.Tensor,
+    zero: torch.Tensor,
+    n_bits: int,
     zero_point: bool = True,
 ) -> torch.Tensor:
+    max_int = (2**n_bits - 1) if zero_point else (2 ** (n_bits - 1) - 1)
+    min_int = 0 if zero_point else -(2 ** (n_bits - 1))
+    scale = scale.expand_as(tensor).clamp(min=_EPS)
+    zero = zero.expand_as(tensor)
+    q = torch.clamp(torch.round(tensor / scale + zero), min_int, max_int)
+    return scale * (q - zero)
+
+
+def _replace_reserved_with_row_mean(
+    group: torch.Tensor,
+    reserved_mask: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Replace reserved columns in a group with row mean of non-reserved columns.
+    reserved_mask is column-wise (same for all rows), shape (out_f, g).
+    """
+    col_mask = reserved_mask[0]
+    non_reserved = ~col_mask
+    if non_reserved.all() or not non_reserved.any():
+        return group.clone()
+    row_mean = group[:, non_reserved].mean(dim=1, keepdim=True)
+    group_filled = group.clone()
+    group_filled[:, col_mask] = row_mean.expand(-1, int(col_mask.sum()))
+    return group_filled
+
+
+@torch.no_grad()
+def pseudo_quantize_weight_with_reserved_columns(
+    weight: torch.Tensor,
+    q_group_size: int,
+    reserved_columns: Set[Tuple[str, int]],
+    layer_key: str,
+    n_bits: int = 4,
+    zero_point: bool = True,
+) -> torch.Tensor:
+    """
+    Row-group pseudo quantization with reserved input columns merged back.
+
+    - Grouping: split each row by input dimension with group size G.
+    - For each group, quantization params are fitted after masking reserved columns.
+    - Final merged weight keeps reserved columns at original precision.
+    """
     out_f, in_f = weight.shape
+    if q_group_size <= 0:
+        raise ValueError("q_group_size must be > 0 for mixed-precision grouped quantization.")
+    if in_f % q_group_size != 0:
+        raise ValueError(
+            f"Strict group policy violated: in_features={in_f} is not divisible by q_group_size={q_group_size}."
+        )
+
     result = weight.clone()
-    for j in range(in_f):
-        bits = (
-            int(n_bits_per_column[j].item())
-            if isinstance(n_bits_per_column, torch.Tensor)
-            else int(n_bits_per_column[j])
-        )
-        col = result[:, j].view(1, -1)
-        q_col = pseudo_quantize_tensor(
-            col,
-            n_bits=bits,
-            zero_point=zero_point,
-            q_group_size=col.shape[1],
-        )
-        result[:, j] = q_col.view(-1)
+    w = weight.float()
+
+    reserved_col_mask = torch.zeros(in_f, dtype=torch.bool, device=weight.device)
+    for col_idx in range(in_f):
+        if (layer_key, col_idx) in reserved_columns:
+            reserved_col_mask[col_idx] = True
+
+    for j in range(0, in_f, q_group_size):
+        group = w[:, j : j + q_group_size]
+        reserved_mask = reserved_col_mask[j : j + q_group_size].unsqueeze(0).expand(out_f, -1)
+
+        group_for_fit = _replace_reserved_with_row_mean(group, reserved_mask)
+        scale, zero = _get_row_group_params(group_for_fit, n_bits, zero_point)
+        group_q = _quant_dequant_with_params(group, scale, zero, n_bits, zero_point)
+
+        reserved_float = reserved_mask.float()
+        group_merged = group_q * (1 - reserved_float) + group * reserved_float
+        result[:, j : j + q_group_size] = group_merged
+
     return result
 
 
@@ -75,6 +166,10 @@ def pseudo_quantize_weight_groupwise(
     zero_point: bool = True,
     q_group_size: int = -1,
 ) -> torch.Tensor:
+    if q_group_size > 0 and weight.shape[-1] % q_group_size != 0:
+        raise ValueError(
+            f"Strict group policy violated: in_features={weight.shape[-1]} is not divisible by q_group_size={q_group_size}."
+        )
     if q_group_size <= 0:
         return pseudo_quantize_tensor(weight, n_bits=n_bits, zero_point=zero_point)
     return pseudo_quantize_tensor(

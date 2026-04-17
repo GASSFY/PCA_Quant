@@ -32,7 +32,8 @@ high_precision_ratio: 0.1
 high_bit: 16
 low_bit: 4
 zero_point: true
-w_group: -1
+# 行内分组大小，当前版本要求对每层 in_features 严格整除
+w_group: 128
 
 # ----- 量化输出 -----
 run_process: true

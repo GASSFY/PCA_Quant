@@ -46,7 +46,7 @@ PCA_Quant/
 2. 收集每层线性层输入激活，估计 `E[x^2]`，并对采样激活做 PCA。
 3. 根据 `--method` 计算全局通道重要性。
 4. 按全局比例 `--high-precision-ratio` 选出高精度通道。
-5. 对权重按列执行混合精度伪量化，并保存量化权重。
+5. 对权重执行“行内分组量化 + 保留输入列回插”的混合精度伪量化，并保存量化权重。
 
 ## 核心参数
 
@@ -66,6 +66,8 @@ PCA_Quant/
   - 低精度通道的量化 bit，默认 `4`
 - `--beta`
   - 仅用于 `beta_log_l1`
+- `--w_group`
+  - 行内分组大小（group size），当前版本采用严格整除策略
 - `--scale_path`
   - 量化权重保存路径
 - `--results_path`
@@ -97,6 +99,7 @@ python main_quant.py \
   --n_samples 128 \
   --method gate_only \
   --pca_k 32 \
+  --w_group 128 \
   --high_precision_ratio 0.1 \
   --high_bit 16 \
   --low_bit 4 \
@@ -149,6 +152,12 @@ python main_eval.py \
 - 混合精度量化入口
 - 基础评测入口
 - 配置和文档说明
+
+分组策略说明（当前固定）：
+
+- 混合精度量化路径采用行内分组（按输入维度分段）。
+- 仅支持严格整除：每个线性层都需满足 `in_features % w_group == 0`。
+- 如果不满足，会在量化前报错并给出该层可选的整除因子建议。
 
 后续可以继续扩展：
 
