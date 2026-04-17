@@ -1,6 +1,31 @@
 # PCA_Quant
 
-`PCA_Quant` 是一个基于任务激活子空间的混合精度量化原型工程。它以 `ASDQ` 的工程组织方式为模板，但将显著性指标替换为 PCA 驱动的子空间对齐信号，用于选择哪些输入通道更值得保留高精度。
+`PCA_Quant` 是一个基于任务激活子空间的混合精度量化原型工程。它以 `ASDQ` 的工程组织方式为模板，但将显著性指标替换为 PCA 驱动的子空间对齐信号，用于选择哪些输出通道（权重行）更值得保留高精度。
+
+## 环境构建
+
+```bash
+# 1) 创建并激活环境
+conda create -n pca_quant python=3.10 -y
+conda activate pca_quant
+
+# 2) 进入项目目录
+cd E:\LLM-learning\PCA_Quant
+
+# 3) 安装项目依赖
+pip install -r requirements.txt
+
+# 4) 安装 LLAVA-NeXT 依赖（LLaVA 系模型推荐）
+cd /root/autodl-tmp
+git clone https://github.com/LLaVA-VL/LLaVA-NeXT.git
+cd LLaVA-NeXT
+pip install -e .
+
+# 5) 安装 lmms-eval（量化/评测入口都依赖）
+git clone https://github.com/LSY-noya/lmms-eval.git
+cd lmms-eval
+pip install -e .
+```
 
 ## 方法概览
 
@@ -59,7 +84,7 @@ PCA_Quant/
 - `--pca_sample_size`
   - 每个线性层最多保留多少 token 参与 PCA 估计
 - `--high_precision_ratio`
-  - 全局保留为高精度的输入通道比例
+  - 全局保留为高精度的输出通道（权重行）比例
 - `--high_bit`
   - 高精度通道的量化 bit，默认 `16`
 - `--low_bit`
@@ -88,7 +113,26 @@ PCA_Quant/
 
 ## 运行命令
 
-### 1. 使用命令行直接量化
+### 1. 使用配置文件（推荐）
+
+先在 `configs/default.yaml` 里填好：
+- 模型：`model`、`model_args`
+- 数据：`data_path`、`image_folder`
+- 输出：`scale_path`、`results_path`
+
+然后直接运行：
+
+```bash
+python main_quant.py --config configs/default.yaml
+```
+
+量化完成后评测：
+
+```bash
+python main_eval.py --config configs/default.yaml
+```
+
+### 2. 使用命令行直接量化
 
 ```bash
 python main_quant.py \
@@ -107,20 +151,7 @@ python main_quant.py \
   --run_process
 ```
 
-### 2. 使用配置文件量化
-
-```bash
-python main_quant.py --config configs/default.yaml
-```
-
-或复制模板后修改：
-
-```bash
-cp configs/config.example.yaml configs/my_run.yaml
-python main_quant.py --config configs/my_run.yaml
-```
-
-### 3. 评测量化结果
+### 3. 评测量化结果（命令行）
 
 ```bash
 python main_eval.py \
