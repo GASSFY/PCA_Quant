@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 from PCA.quantization.quant_funcs import (
     pseudo_quantize_tensor,
-    pseudo_quantize_weight_with_reserved_columns,
+    pseudo_quantize_weight_with_reserved_rows,
 )
 
 
@@ -54,13 +54,14 @@ def pseudo_quantize_model_weight(
             w = m.weight.data
             if use_mixed and high_precision_channels is not None:
                 key = _linear_layer_key(i, n)
-                # Mixed path: grouped row-wise quantization + reserved input columns merge-back.
-                m.weight.data = pseudo_quantize_weight_with_reserved_columns(
+                # Mixed path: reserve selected output rows at high bit.
+                m.weight.data = pseudo_quantize_weight_with_reserved_rows(
                     w,
                     q_group_size=q_group_size,
-                    reserved_columns=high_precision_channels,
+                    reserved_rows=high_precision_channels,
                     layer_key=key,
-                    n_bits=low_w_bit,
+                    high_n_bits=high_w_bit,
+                    low_n_bits=low_w_bit,
                     zero_point=zero_point,
                 )
             else:

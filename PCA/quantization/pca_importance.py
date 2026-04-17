@@ -1,4 +1,4 @@
-"""PCA-based importance functions for mixed-precision quantization."""
+"""PCA-based row importance functions for mixed-precision quantization."""
 from __future__ import annotations
 
 from typing import Optional, Tuple
@@ -6,7 +6,7 @@ from typing import Optional, Tuple
 import torch
 
 _EPS = 1e-8
-SUPPORTED_METHODS = ("l1_only", "gate_only", "l1_gate_mul", "beta_log_l1")
+SUPPORTED_METHODS = ("proj_log", "proj_norm", "gate_only", "abs_only")
 
 
 def _flatten_activations(activations: torch.Tensor) -> torch.Tensor:
@@ -56,11 +56,11 @@ def convert_components_to_basis(components: torch.Tensor) -> torch.Tensor:
 
 
 @torch.no_grad()
-def compute_gate_score(
+def compute_row_projection_norm(
     weight: torch.Tensor,
     basis: torch.Tensor,
-    eps: float = _EPS,
 ) -> torch.Tensor:
+    """Compute ||P_k w_i||_2 for each output row w_i."""
     in_features = weight.shape[1]
     basis = convert_components_to_basis(basis)
     if basis.shape[0] != in_features:
@@ -71,48 +71,70 @@ def compute_gate_score(
             raise ValueError(
                 f"Basis rows ({basis.shape[0]}) must match input features ({in_features})."
             )
-
-    gate = basis.float().pow(2).sum(dim=1).sqrt()
-    return gate.clamp(min=0.0, max=1.0 + eps)
+    # For row vectors, projection to PCA subspace is w * (U U^T) = (wU) U^T.
+    # Since U has orthonormal columns, ||w (U U^T)||_2 = ||wU||_2.
+    proj_coeff = torch.matmul(weight.float(), basis.float())
+    return proj_coeff.norm(p=2, dim=1)
 
 
 @torch.no_grad()
-def compute_magnitude_score(
+def compute_gate_score(
     weight: torch.Tensor,
-    activation_second_moment: torch.Tensor,
+    basis: torch.Tensor,
+    eps: float = _EPS,
 ) -> torch.Tensor:
-    if activation_second_moment.dim() != 1:
-        activation_second_moment = activation_second_moment.view(-1)
-    if weight.shape[1] != activation_second_moment.shape[0]:
-        if weight.shape[0] == activation_second_moment.shape[0]:
-            weight = weight.t()
-        else:
-            raise ValueError(
-                f"Shape mismatch: weight {tuple(weight.shape)}, second moment {tuple(activation_second_moment.shape)}"
-            )
-    w_col_norm_sq = weight.float().pow(2).sum(dim=0)
-    return w_col_norm_sq * activation_second_moment.float()
+    """Compute Gate_i = ||P_k w_i||_2 / (||w_i||_2 + eps)."""
+    abs_proj = compute_row_projection_norm(weight=weight, basis=basis)
+    row_norm = weight.float().norm(p=2, dim=1)
+    return abs_proj / (row_norm + eps)
+
+
+@torch.no_grad()
+def compute_abs_score(
+    weight: torch.Tensor,
+    basis: torch.Tensor,
+) -> torch.Tensor:
+    """Compute Abs_i = ||P_k w_i||_2."""
+    return compute_row_projection_norm(weight=weight, basis=basis)
+
+
+@torch.no_grad()
+def compute_alignment_metrics(
+    weight: torch.Tensor,
+    basis: torch.Tensor,
+    eps: float = _EPS,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return (Gate_i, Abs_i) for each output row i."""
+    abs_proj = compute_abs_score(weight=weight, basis=basis)
+    row_norm = weight.float().norm(p=2, dim=1)
+    gate = abs_proj / (row_norm + eps)
+    return gate, abs_proj
 
 
 @torch.no_grad()
 def compute_importance_score(
     method: str,
     weight: torch.Tensor,
-    activation_second_moment: torch.Tensor,
     basis: torch.Tensor,
     beta: float = 1.0,
+    abs_zscore: Optional[torch.Tensor] = None,
     eps: float = _EPS,
 ) -> torch.Tensor:
     if method not in SUPPORTED_METHODS:
         raise ValueError(f"Unknown method: {method}. Use one of {SUPPORTED_METHODS}.")
 
-    magnitude = compute_magnitude_score(weight, activation_second_moment)
-    gate = compute_gate_score(weight, basis, eps=eps)
+    gate, abs_proj = compute_alignment_metrics(weight=weight, basis=basis, eps=eps)
 
-    if method == "l1_only":
-        return magnitude
+    if method == "proj_log":
+        return gate + beta * torch.log(abs_proj + eps)
+    if method == "proj_norm":
+        if abs_zscore is None:
+            raise ValueError("abs_zscore must be provided for method='proj_norm'.")
+        if abs_zscore.shape != abs_proj.shape:
+            raise ValueError(
+                f"Shape mismatch: abs_zscore {tuple(abs_zscore.shape)} vs abs {tuple(abs_proj.shape)}"
+            )
+        return gate + beta * abs_zscore
     if method == "gate_only":
         return gate
-    if method == "l1_gate_mul":
-        return magnitude * gate
-    return gate + beta * torch.log(magnitude.clamp(min=0.0) + eps)
+    return abs_proj

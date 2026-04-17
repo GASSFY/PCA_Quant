@@ -100,7 +100,7 @@ def collect_pca_stats(
                 x = args[0]
                 if not isinstance(x, torch.Tensor):
                     return
-                x = x.detach().float().view(-1, x.shape[-1])
+                x = x.detach().float().view(-1, x.shape[-1])        # 展平成[tokens, hidden_dim]
                 if x.numel() == 0:
                     return
 
@@ -124,6 +124,7 @@ def collect_pca_stats(
 
         handles = []
         for name, linear in get_named_linears(layer).items():
+            # 每一个线性层获取一个key
             key = _linear_layer_key(layer_idx, name)
             handles.append(linear.register_forward_hook(_make_hook(key)))
 
@@ -144,9 +145,10 @@ def collect_pca_stats(
             h.remove()
 
         for key in samples:
-            sample = torch.cat(samples[key], dim=0)
+            sample = torch.cat(samples[key], dim=0) # [num_tokens, hidden_dim]
             q = min(max(1, pca_k), sample.shape[0], sample.shape[1])
-            basis, eigenvalues = compute_pca_components(activations=sample, k=q)
+            # basis 为主方向矩阵，[hidden_dim, q]，eigenvalues 表示每个方向的重要程度（方差大小）
+            basis, eigenvalues = compute_pca_components(activations=sample, k=q)    
             layer_stats[key] = {
                 "input_second_moment": sum_x2[key] / max(1, count[key]),
                 "basis": basis.cpu(),

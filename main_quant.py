@@ -58,7 +58,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pseudo_quant", action="store_true", default=True)
     parser.add_argument("--zero_point", action="store_true", default=True)
     parser.add_argument("--w_group", type=int, default=-1)
-    parser.add_argument("--method", default="gate_only", choices=["l1_only", "gate_only", "l1_gate_mul", "beta_log_l1"])
+    parser.add_argument("--method", default="gate_only", choices=["proj_log", "proj_norm", "gate_only", "abs_only"])
     parser.add_argument("--pca_k", type=int, default=32)
     parser.add_argument("--pca_sample_size", type=int, default=512)
     parser.add_argument("--high_precision_ratio", type=float, default=0.1)
@@ -179,7 +179,7 @@ def _run_single(args: argparse.Namespace) -> None:
     )
     print(
         "[PCA] Mixed precision selected "
-        f"{len(high_precision_channels)} high-precision channels "
+        f"{len(high_precision_channels)} high-precision rows "
         f"(ratio={args.high_precision_ratio})."
     )
 

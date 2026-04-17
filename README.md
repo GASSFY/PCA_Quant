@@ -4,19 +4,19 @@
 
 ## 方法概览
 
-第一版支持四种通道打分方法，通过 `--method` 切换：
+当前版本支持四种输出通道打分方法，通过 `--method` 切换：
 
-- `l1_only`：仅使用幅值项
-- `gate_only`：仅使用 PCA 子空间对齐项
-- `l1_gate_mul`：幅值项与 Gate 的乘法
-- `beta_log_l1`：`Gate + beta * log(Magnitude + eps)`
+- `proj_log`：`Gate + beta * log(Abs + eps)`
+- `proj_norm`：`Gate + beta * Z(Abs)`（`Z` 为全 Transformer 全局 z-score）
+- `gate_only`：仅使用 Gate
+- `abs_only`：仅使用 Abs
 
 其中：
 
-- `Magnitude_c = ||W[:, c]||^2 * E[x_c^2]`
-- `Gate_c = sqrt(sum_j U_k[c, j]^2)`
+- `Gate_i = ||P_k w_i||_2 / (||w_i||_2 + eps)`
+- `Abs_i = ||P_k w_i||_2`
 
-这里 `U_k` 是该层输入激活做 PCA 后得到的前 `k` 个主成分基底。第一版里，`epsilon` 只作为函数内部的数值稳定项，不作为命令行参数暴露。
+这里 `w_i` 是第 `i` 个输出通道对应的权重行向量，`P_k = U_k U_k^T`，`U_k` 是该层输入激活 PCA 的前 `k` 个主成分基底。`epsilon` 只作为函数内部数值稳定项，不作为命令行参数暴露。
 
 ## 架构
 
@@ -44,16 +44,16 @@ PCA_Quant/
 
 1. 通过模型 wrapper 和校准数据构建前向 mini-batches。
 2. 收集每层线性层输入激活，估计 `E[x^2]`，并对采样激活做 PCA。
-3. 根据 `--method` 计算全局通道重要性。
+3. 根据 `--method` 计算全局输出通道重要性。
 4. 按全局比例 `--high-precision-ratio` 选出高精度通道。
-5. 对权重执行“行内分组量化 + 保留输入列回插”的混合精度伪量化，并保存量化权重。
+5. 对权重执行“行内分组量化 + 保留输出行高 bit 量化”的混合精度伪量化，并保存量化权重。
 
 ## 核心参数
 
 ### 量化相关
 
 - `--method`
-  - 可选：`l1_only`、`gate_only`、`l1_gate_mul`、`beta_log_l1`
+  - 可选：`proj_log`、`proj_norm`、`gate_only`、`abs_only`
 - `--pca_k`
   - PCA 主成分个数
 - `--pca_sample_size`
@@ -65,7 +65,7 @@ PCA_Quant/
 - `--low_bit`
   - 低精度通道的量化 bit，默认 `4`
 - `--beta`
-  - 仅用于 `beta_log_l1`
+  - 用于 `proj_log` 和 `proj_norm`
 - `--w_group`
   - 行内分组大小（group size），当前版本采用严格整除策略
 - `--scale_path`
@@ -145,7 +145,7 @@ python main_eval.py \
 
 ## 当前版本说明
 
-这是第一版可执行骨架，重点是先跑通：
+当前版本重点是先跑通：
 
 - PCA 统计收集
 - 四种方法的统一接口
@@ -156,6 +156,7 @@ python main_eval.py \
 分组策略说明（当前固定）：
 
 - 混合精度量化路径采用行内分组（按输入维度分段）。
+- 保留对象是输出通道（权重行），选中行使用高 bit 量化，其他行使用低 bit 量化。
 - 仅支持严格整除：每个线性层都需满足 `in_features % w_group == 0`。
 - 如果不满足，会在量化前报错并给出该层可选的整除因子建议。
 

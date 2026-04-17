@@ -12,6 +12,7 @@ interleave_format: false
 few_shot_format: false
 text_data_path: ""
 
+# method options: proj_log | proj_norm | gate_only | abs_only
 method: gate_only
 pca_k: 32
 pca_sample_size: 512

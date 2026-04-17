@@ -113,20 +113,21 @@ def _replace_reserved_with_row_mean(
 
 
 @torch.no_grad()
-def pseudo_quantize_weight_with_reserved_columns(
+def pseudo_quantize_weight_with_reserved_rows(
     weight: torch.Tensor,
     q_group_size: int,
-    reserved_columns: Set[Tuple[str, int]],
+    reserved_rows: Set[Tuple[str, int]],
     layer_key: str,
-    n_bits: int = 4,
+    high_n_bits: int = 16,
+    low_n_bits: int = 4,
     zero_point: bool = True,
 ) -> torch.Tensor:
     """
-    Row-group pseudo quantization with reserved input columns merged back.
+    Row-reserved grouped pseudo quantization.
 
-    - Grouping: split each row by input dimension with group size G.
-    - For each group, quantization params are fitted after masking reserved columns.
-    - Final merged weight keeps reserved columns at original precision.
+    - Grouping still follows input dimension with size q_group_size.
+    - Selected output rows use high_n_bits.
+    - Non-selected rows use low_n_bits.
     """
     out_f, in_f = weight.shape
     if q_group_size <= 0:
@@ -138,23 +139,35 @@ def pseudo_quantize_weight_with_reserved_columns(
 
     result = weight.clone()
     w = weight.float()
-
-    reserved_col_mask = torch.zeros(in_f, dtype=torch.bool, device=weight.device)
-    for col_idx in range(in_f):
-        if (layer_key, col_idx) in reserved_columns:
-            reserved_col_mask[col_idx] = True
+    reserved_row_mask = torch.zeros(out_f, dtype=torch.bool, device=weight.device)
+    for row_idx in range(out_f):
+        if (layer_key, row_idx) in reserved_rows:
+            reserved_row_mask[row_idx] = True
 
     for j in range(0, in_f, q_group_size):
         group = w[:, j : j + q_group_size]
-        reserved_mask = reserved_col_mask[j : j + q_group_size].unsqueeze(0).expand(out_f, -1)
 
-        group_for_fit = _replace_reserved_with_row_mean(group, reserved_mask)
-        scale, zero = _get_row_group_params(group_for_fit, n_bits, zero_point)
-        group_q = _quant_dequant_with_params(group, scale, zero, n_bits, zero_point)
+        group_high = group[reserved_row_mask]
+        if group_high.numel() > 0:
+            scale_h, zero_h = _get_row_group_params(group_high, high_n_bits, zero_point)
+            result[reserved_row_mask, j : j + q_group_size] = _quant_dequant_with_params(
+                group_high,
+                scale_h,
+                zero_h,
+                high_n_bits,
+                zero_point,
+            )
 
-        reserved_float = reserved_mask.float()
-        group_merged = group_q * (1 - reserved_float) + group * reserved_float
-        result[:, j : j + q_group_size] = group_merged
+        group_low = group[~reserved_row_mask]
+        if group_low.numel() > 0:
+            scale_l, zero_l = _get_row_group_params(group_low, low_n_bits, zero_point)
+            result[~reserved_row_mask, j : j + q_group_size] = _quant_dequant_with_params(
+                group_low,
+                scale_l,
+                zero_l,
+                low_n_bits,
+                zero_point,
+            )
 
     return result
 
