@@ -89,8 +89,16 @@ def select_high_precision_channels(
         return set()
     if ratio >= 1.0:
         return {(k, c) for k, c, _ in global_importance_list}
+    by_layer: dict[str, list[tuple[int, float]]] = {}
+    for layer_key, row_idx, score in global_importance_list:
+        by_layer.setdefault(layer_key, []).append((row_idx, score))
 
-    sorted_list = sorted(global_importance_list, key=lambda t: t[2], reverse=True)
-    n_total = len(sorted_list)
-    n_high = max(1, int(round(n_total * ratio)))
-    return {(t[0], t[1]) for t in sorted_list[:n_high]}
+    selected: set[tuple[str, int]] = set()
+    for layer_key, row_scores in by_layer.items():
+        if not row_scores:
+            continue
+        n_layer = len(row_scores)
+        k_layer = max(1, int(round(n_layer * ratio)))
+        sorted_rows = sorted(row_scores, key=lambda t: t[1], reverse=True)
+        selected.update((layer_key, row_idx) for row_idx, _ in sorted_rows[:k_layer])
+    return selected

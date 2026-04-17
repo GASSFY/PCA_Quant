@@ -69,8 +69,8 @@ PCA_Quant/
 
 1. 通过模型 wrapper 和校准数据构建前向 mini-batches。
 2. 收集每层线性层输入激活，估计 `E[x^2]`，并对采样激活做 PCA。
-3. 根据 `--method` 计算全局输出通道重要性。
-4. 按全局比例 `--high-precision-ratio` 选出高精度通道。
+3. 根据 `--method` 计算输出通道重要性分数。
+4. 按 `--high-precision-ratio` 在每层独立选取 top-k 高精度通道（各层单独排序，不做跨层竞争）。
 5. 对权重执行“行内分组量化 + 保留输出行高 bit 量化”的混合精度伪量化，并保存量化权重。
 
 ## 核心参数
@@ -84,7 +84,7 @@ PCA_Quant/
 - `--pca_sample_size`
   - 每个线性层最多保留多少 token 参与 PCA 估计
 - `--high_precision_ratio`
-  - 全局保留为高精度的输出通道（权重行）比例
+  - 每层独立保留为高精度的输出通道（权重行）比例
 - `--high_bit`
   - 高精度通道的量化 bit，默认 `16`
 - `--low_bit`

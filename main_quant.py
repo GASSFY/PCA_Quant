@@ -180,7 +180,7 @@ def _run_single(args: argparse.Namespace) -> None:
     print(
         "[PCA] Mixed precision selected "
         f"{len(high_precision_channels)} high-precision rows "
-        f"(ratio={args.high_precision_ratio})."
+        f"(per-layer ratio={args.high_precision_ratio})."
     )
 
     if hasattr(process_model, "to_cuda"):
