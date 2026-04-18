@@ -150,24 +150,26 @@ def pseudo_quantize_weight_with_reserved_rows(
         group_high = group[reserved_row_mask]
         if group_high.numel() > 0:
             scale_h, zero_h = _get_row_group_params(group_high, high_n_bits, zero_point)
-            result[reserved_row_mask, j : j + q_group_size] = _quant_dequant_with_params(
+            dq_h = _quant_dequant_with_params(
                 group_high,
                 scale_h,
                 zero_h,
                 high_n_bits,
                 zero_point,
-            )
+            ).to(dtype=weight.dtype)
+            result[reserved_row_mask, j : j + q_group_size] = dq_h
 
         group_low = group[~reserved_row_mask]
         if group_low.numel() > 0:
             scale_l, zero_l = _get_row_group_params(group_low, low_n_bits, zero_point)
-            result[~reserved_row_mask, j : j + q_group_size] = _quant_dequant_with_params(
+            dq_l = _quant_dequant_with_params(
                 group_low,
                 scale_l,
                 zero_l,
                 low_n_bits,
                 zero_point,
-            )
+            ).to(dtype=weight.dtype)
+            result[~reserved_row_mask, j : j + q_group_size] = dq_l
 
     return result
 
