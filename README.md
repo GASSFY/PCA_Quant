@@ -49,8 +49,11 @@ pip install -e .
 
 ```text
 PCA_Quant/
-├── main_quant.py                 # 量化入口
-├── main_eval.py                  # 评测入口
+├── main_quant.py                 # 量化入口（校准 + PCA + 选通道 + 伪量化 + 保存权重）
+├── main_eval.py                  # 评测入口（lmms-eval）
+├── scripts/
+│   └── optuna_tune.py            # 可选：用 Optuna（TPE）搜索 beta，复用一次 PCA 统计
+├── tune/                         # 搜索空间与指标解析（见 tune/README.md）
 ├── configs/
 │   ├── default.yaml.example   # 仓库内模板（会提交）
 │   └── default.yaml           # 本地配置（不提交，从模板复制）
@@ -115,32 +118,53 @@ PCA_Quant/
 
 ## 运行命令
 
-### 1. 使用配置文件（推荐）
+以下命令均在**项目根目录**（`PCA_Quant/`）下执行。量化入口始终是 **`main_quant.py`**；更新仓库后，若你仍用 `python main_quant.py --config ...` 与原先一致，**行为不变**（`--beta` 仍从配置文件或命令行传入）。
 
-首次使用请从模板复制一份本地配置（`default.yaml` 不会被 Git 跟踪）：
+### 执行量化前需要满足什么
 
-```bash
-cp configs/default.yaml.example configs/default.yaml
-```
+1. **本地配置**：若还没有 `configs/default.yaml`，先从模板复制并填写路径与模型参数（该文件默认被 Git 忽略）：
 
-然后在 `configs/default.yaml` 里填好：
-- 模型：`model`、`model_args`
-- 数据：`data_path`、`image_folder`
-- 输出：`scale_path`、`results_path`
+   ```bash
+   cp configs/default.yaml.example configs/default.yaml
+   ```
 
-然后直接运行：
+2. **量化开关**：在 YAML 中设置 `run_process: true`（或命令行加 `--run_process`），否则 `main_quant.py` 只做「加载已有 `scale_path`」分支，不会执行校准与伪量化。
+
+3. **校准数据**：`calib_data: coco` 时需填写 `data_path` 与 `image_folder`（与 `main_quant` 要求一致）。
+
+4. **`beta` 何时生效**：仅当 `method` 为 `proj_log` 或 `proj_norm` 时，`beta` 会影响通道重要性；`gate_only` / `abs_only` 下可忽略 `beta`。
+
+---
+
+### 方式一：仅用配置文件完成量化（最常用）
+
+在 `configs/default.yaml` 中填好模型、校准数据、`scale_path`、`results_path`，以及方法、`beta`（若使用 `proj_log` / `proj_norm` ）等字段后执行：
 
 ```bash
 python main_quant.py --config configs/default.yaml
 ```
 
-量化完成后评测：
+量化完成后，用同一份配置做评测（请保证 YAML 里 `tasks`、`output_path`、`scale_path` 等与评测一致，或命令行显式覆盖）：
 
 ```bash
-python main_eval.py --config configs/default.yaml
+python main_eval.py --config configs/default.yaml --tasks mmmu_val
 ```
 
-### 2. 使用命令行直接量化
+若评测相关项未写在 YAML 里，可在命令行补全，例如：
+
+```bash
+python main_eval.py \
+  --config configs/default.yaml \
+  --tasks mmmu_val \
+  --scale_path scale_cache/pca_quant_model.pt \
+  --output_path eval_results
+```
+
+---
+
+### 方式二：命令行直接量化（不依赖 YAML 中的部分字段）
+
+与过去相同，可显式传入 `--model`、`--data_path`、`--beta`、`--run_process` 等，例如：
 
 ```bash
 python main_quant.py \
@@ -149,7 +173,8 @@ python main_quant.py \
   --data_path /path/to/calib.jsonl \
   --image_folder /path/to/images \
   --n_samples 128 \
-  --method gate_only \
+  --method proj_log \
+  --beta 1.0 \
   --pca_k 32 \
   --w_group 128 \
   --high_precision_ratio 0.1 \
@@ -159,15 +184,63 @@ python main_quant.py \
   --run_process
 ```
 
-### 3. 评测量化结果（命令行）
+若同时使用 `--config` 与上述参数，合并顺序为：先解析命令行 `parse_args()`，再对 YAML 中的每一项执行 `_apply_config`。**因此 YAML 里出现的键会覆盖命令行里已传入的同名参数**（若希望以命令行为准，请勿在 YAML 中写该键）。
+
+---
+
+### 方式三：用 Optuna 搜索 `beta` 后再做「最终」量化（可选）
+
+适用场景：希望在固定任务指标（如 `mmmu_val` 的 `mmmu_acc`）下自动搜索 `beta`，再把最优值用于一次正式量化。
+
+**步骤 1 — 安装依赖**（`requirements.txt` 已包含 `optuna`）：
 
 ```bash
-python main_eval.py \
+pip install -r requirements.txt
+```
+
+**步骤 2 — 配置**：在 YAML 中设置 `method: proj_log` 或 `proj_norm`，并 `run_process: true`；校准与模型路径需正确。
+
+**步骤 3 — 运行搜索**（在仓库根目录）：
+
+```bash
+python scripts/optuna_tune.py \
   --config configs/default.yaml \
   --tasks mmmu_val \
-  --scale_path scale_cache/pca_quant_model.pt \
-  --output_path eval_results
+  --metric-substring mmmu_acc \
+  --n-trials 20 \
+  --output-dir optuna_study/mmmu_beta
 ```
+
+说明：
+
+- 脚本会**只做一次**校准与 PCA 统计，每个 trial 仅更换 `beta` 并重跑「重要性 → 选通道 → 伪量化 → 评测」，比重复跑完整 `main_quant` 全流程更省时间。
+- 结果目录下会生成 **`best_params.json`**（含最优 `beta`）以及各 trial 的 checkpoint；`optuna_study/` 已在 `.gitignore` 中，避免误提交。
+
+**步骤 4 — 将最优 `beta` 写回配置并执行最终量化**：
+
+1. 打开 `optuna_study/mmmu_beta/best_params.json`，记下 `best_params.beta`（或 `best_tune_hyperparams` 中的值）。
+2. 编辑 `configs/default.yaml`，将 `beta` 设为该值（并保持 `method` 仍为 `proj_log` 或 `proj_norm`）。
+3. 设定你希望的最终权重路径，例如 `scale_path: "scale_cache/pca_quant_model.pt"`，再运行：
+
+   ```bash
+   python main_quant.py --config configs/default.yaml
+   ```
+
+4. 如需全量评测，再运行 `main_eval.py`（同上）。
+
+可选：搜索阶段为加快评测可在 YAML 中设较小的 `limit`；最终量化与评测可改回全量 `limit` 或去掉限制。
+
+---
+
+### 小结：我该用哪条命令「执行量化」？
+
+| 目的 | 命令 |
+|------|------|
+| 日常量化（固定 `beta`） | `python main_quant.py --config configs/default.yaml` |
+| 调参搜索 `beta` | `python scripts/optuna_tune.py --config ... --tasks ... --output-dir ...` |
+| 搜索完成后，用最优 `beta` 再训一次权重 | 把 `beta` 写入 YAML 后，再次 `python main_quant.py --config configs/default.yaml` |
+
+扩展搜索维度（除 `beta` 外更多超参）时，见 [`tune/README.md`](tune/README.md)。
 
 ## 配置文件
 

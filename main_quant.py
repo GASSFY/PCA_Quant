@@ -15,7 +15,7 @@ import argparse
 import json
 import os
 import warnings
-from typing import Union
+from typing import Any, Union
 
 import torch
 import yaml
@@ -130,21 +130,22 @@ def _validate_group_size_strict(model, q_group_size: int) -> None:
                 )
 
 
-def _run_single(args: argparse.Namespace) -> None:
-    lm, process_model = _load_model_and_wrapper(args)
-    _validate_group_size_strict(process_model.model, args.w_group)
+def clone_model_state_dict_cpu(model: torch.nn.Module) -> dict[str, torch.Tensor]:
+    """Snapshot weights on CPU for restoring between Optuna trials (cheap RAM vs re-download)."""
+    return {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
 
-    if not args.run_process:
-        if args.scale_path and os.path.exists(args.scale_path):
-            state = torch.load(args.scale_path, map_location="cpu", weights_only=True)
-            if isinstance(state, dict) and "state_dict" in state:
-                lm._model.load_state_dict(state["state_dict"], strict=False)
-            else:
-                lm._model.load_state_dict(state, strict=False)
-            print(f"[PCA] Loaded quantized state from {args.scale_path}")
-        return
 
-    forward_kwargs_list = None
+def load_state_dict_from_cpu_snapshot(model: torch.nn.Module, cpu_sd: dict[str, torch.Tensor]) -> None:
+    """Load CPU snapshot tensors into ``model``, matching device/dtype per parameter."""
+    own = model.state_dict()
+    load_sd = {k: cpu_sd[k].to(device=own[k].device, dtype=own[k].dtype) for k in cpu_sd if k in own}
+    model.load_state_dict(load_sd, strict=False)
+
+
+def prepare_calibration_forward_kwargs(
+    args: argparse.Namespace,
+    process_model,
+) -> list:
     if args.calib_data == "coco" and args.data_path and args.image_folder:
         forward_kwargs_list, _ = get_multimodal_calib_dataset(
             data_path=args.data_path,
@@ -156,9 +157,15 @@ def _run_single(args: argparse.Namespace) -> None:
             text_data_path=args.text_data_path or None,
         )
         print(f"[PCA] Calibration data loaded ({len(forward_kwargs_list)} mini-batches).")
-    else:
-        raise ValueError("PCA quantization requires calibration data_path and image_folder.")
+        return forward_kwargs_list
+    raise ValueError("PCA quantization requires calibration data_path and image_folder.")
 
+
+def collect_layer_stats(
+    args: argparse.Namespace,
+    process_model,
+    forward_kwargs_list: list,
+) -> dict[str, Any]:
     layer_stats = collect_pca_stats(
         process_model,
         forward_kwargs_list,
@@ -166,6 +173,23 @@ def _run_single(args: argparse.Namespace) -> None:
         max_tokens_per_layer=args.pca_sample_size,
     )
     print(f"[PCA] Collected PCA stats for {len(layer_stats)} linear layers.")
+    return layer_stats
+
+
+def run_quantization_from_cached_stats(
+    args: argparse.Namespace,
+    lm,
+    process_model,
+    layer_stats: dict[str, Any],
+    baseline_state_cpu: dict[str, torch.Tensor],
+) -> None:
+    """
+    Restore FP weights from ``baseline_state_cpu``, then run importance -> mask -> pseudo-quant.
+
+    ``layer_stats`` must come from ``collect_layer_stats`` on the same FP checkpoint as
+    ``baseline_state_cpu`` (beta only affects importance after restore).
+    """
+    load_state_dict_from_cpu_snapshot(lm._model, baseline_state_cpu)
 
     global_importance_list = compute_global_importance_list(
         process_model.model,
@@ -219,6 +243,26 @@ def _run_single(args: argparse.Namespace) -> None:
         "scale_path": args.scale_path,
     }
     _save_summary(args.results_path or _default_results_path(args.scale_path), summary)
+
+
+def _run_single(args: argparse.Namespace) -> None:
+    lm, process_model = _load_model_and_wrapper(args)
+    _validate_group_size_strict(process_model.model, args.w_group)
+
+    if not args.run_process:
+        if args.scale_path and os.path.exists(args.scale_path):
+            state = torch.load(args.scale_path, map_location="cpu", weights_only=True)
+            if isinstance(state, dict) and "state_dict" in state:
+                lm._model.load_state_dict(state["state_dict"], strict=False)
+            else:
+                lm._model.load_state_dict(state, strict=False)
+            print(f"[PCA] Loaded quantized state from {args.scale_path}")
+        return
+
+    forward_kwargs_list = prepare_calibration_forward_kwargs(args, process_model)
+    layer_stats = collect_layer_stats(args, process_model, forward_kwargs_list)
+    baseline_cpu = clone_model_state_dict_cpu(lm._model)
+    run_quantization_from_cached_stats(args, lm, process_model, layer_stats, baseline_cpu)
 
 
 def cli_main(args: Union[argparse.Namespace, None] = None) -> None:

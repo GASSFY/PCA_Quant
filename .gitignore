@@ -20,6 +20,7 @@ scale_cache/
 eval_results/
 eval_new_results/
 test_result/
+optuna_study/
 
 *.log
 

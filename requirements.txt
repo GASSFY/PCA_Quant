@@ -44,4 +44,7 @@ qwen-vl-utils
 pyyaml
 numpy
 
+# hyperparameter search (optional; used by scripts/optuna_tune.py)
+optuna>=3.0
+
 # lmms-eval: install separately if needed, e.g. pip install lmms-eval
