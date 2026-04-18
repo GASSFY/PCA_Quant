@@ -10,5 +10,5 @@ class TuneHyperParams:
 
     beta: float
     # Reserved for future search dimensions, e.g.:
-    # pca_k: int
+    pca_k: int
     # high_precision_ratio: float

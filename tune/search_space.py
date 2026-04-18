@@ -16,6 +16,9 @@ def suggest_hyperparams(
     beta_low: float = BETA_LOW_DEFAULT,
     beta_high: float = BETA_HIGH_DEFAULT,
     beta_log: bool = True,
+    pca_k_low: int = 1,
+    pca_k_high: int = 100,
+    pca_k_log: bool = True,
 ) -> TuneHyperParams:
     """
     Central entry for all tunable scalars. Phase 1: beta only.
@@ -23,4 +26,5 @@ def suggest_hyperparams(
     When adding parameters, extend TuneHyperParams and append suggest_* here.
     """
     beta = trial.suggest_float("beta", beta_low, beta_high, log=beta_log)
-    return TuneHyperParams(beta=beta)
+    pca_k = trial.suggest_int("pca_k", pca_k_low, pca_k_high, log=pca_k_log)
+    return TuneHyperParams(beta=beta, pca_k=pca_k)
