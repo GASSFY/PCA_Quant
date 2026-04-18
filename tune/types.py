@@ -9,6 +9,4 @@ class TuneHyperParams:
     """Immutable snapshot of one trial's suggested values."""
 
     beta: float
-    # Reserved for future search dimensions, e.g.:
     pca_k: int
-    # high_precision_ratio: float

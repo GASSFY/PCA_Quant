@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Optuna (TPE) search over ``beta`` for PCA mixed-precision quantization.
+Optuna (TPE) search over ``beta`` and ``pca_k`` for PCA mixed-precision quantization.
 
 Requires: pip install optuna (see requirements.txt).
 
@@ -10,10 +10,12 @@ Example (from repository root)::
         --config configs/default.yaml \\
         --tasks mmmu_val \\
         --metric-substring mmmu_acc \\
-        --n-trials 20 \\
+        --n-trials 30 \\
         --output-dir tune_runs/mmmu_beta
 
 ``--method`` in the YAML should be ``proj_log`` or ``proj_norm`` so ``beta`` matters.
+Each trial re-collects PCA stats for the suggested ``pca_k`` (calibration data is reused).
+
 Pass ``--discard-trial-artifacts`` to delete each trial's ``.pt`` and eval outputs after scoring (saves disk).
 """
 from __future__ import annotations
@@ -98,10 +100,10 @@ def main() -> None:
     import main_quant as mq
     from tune.apply_params import apply_tune_params
     from tune.metric import extract_task_metric
-    from tune.search_space import suggest_hyperparams
+    from tune.search_space import PCA_K_HIGH_DEFAULT, PCA_K_LOW_DEFAULT, suggest_hyperparams
     from tune.types import TuneHyperParams
 
-    parser = argparse.ArgumentParser(description="Optuna TPE search for beta (PCA_Quant).")
+    parser = argparse.ArgumentParser(description="Optuna TPE search for beta and pca_k (PCA_Quant).")
     parser.add_argument("--config", required=True, help="YAML config (same as main_quant / main_eval).")
     parser.add_argument("--tasks", required=True, help="Comma-separated lmms-eval tasks (e.g. mmmu_val).")
     parser.add_argument(
@@ -109,7 +111,7 @@ def main() -> None:
         default="mmmu_acc",
         help="Substring to match inside results[task] keys (e.g. mmmu_acc, exact_match).",
     )
-    parser.add_argument("--n-trials", type=int, default=20)
+    parser.add_argument("--n-trials", type=int, default=30, help="Number of Optuna trials (default: 30).")
     parser.add_argument("--study-name", default="pca_beta", help="Optuna study name.")
     parser.add_argument("--output-dir", default="optuna_study", help="Trial checkpoints and best_params.json.")
     parser.add_argument("--seed", type=int, default=0)
@@ -117,6 +119,23 @@ def main() -> None:
     parser.add_argument("--beta-low", type=float, default=None, help="Override lower bound for beta.")
     parser.add_argument("--beta-high", type=float, default=None, help="Override upper bound for beta.")
     parser.add_argument("--beta-linear", action="store_true", help="Search beta on a linear scale (default: log).")
+    parser.add_argument(
+        "--pca-k-low",
+        type=int,
+        default=None,
+        help="Override lower bound for pca_k (default: tune.search_space.PCA_K_LOW_DEFAULT).",
+    )
+    parser.add_argument(
+        "--pca-k-high",
+        type=int,
+        default=None,
+        help="Override upper bound for pca_k (default: tune.search_space.PCA_K_HIGH_DEFAULT).",
+    )
+    parser.add_argument(
+        "--pca-k-log",
+        action="store_true",
+        help="Suggest pca_k on a log-integer scale (default: linear).",
+    )
     parser.add_argument(
         "--quant-extra",
         nargs="*",
@@ -135,7 +154,7 @@ def main() -> None:
         help=(
             "After each trial (success or failure), delete that trial's .pt, "
             ".summary.json, and eval output directory to save disk space. "
-            "best_params.json is still written at the end; re-run main_quant.py with the best beta to reproduce weights."
+            "best_params.json is still written at the end; re-run main_quant.py with the best beta/pca_k to reproduce weights."
         ),
     )
     script_args = parser.parse_args()
@@ -160,7 +179,6 @@ def main() -> None:
     mq._validate_group_size_strict(process_model.model, quant_args.w_group)
 
     forward_list = mq.prepare_calibration_forward_kwargs(quant_args, process_model)
-    layer_stats = mq.collect_layer_stats(quant_args, process_model, forward_list)
     baseline_cpu = mq.clone_model_state_dict_cpu(lm._model)
 
     beta_low = script_args.beta_low
@@ -170,6 +188,13 @@ def main() -> None:
     if beta_low is not None and beta_high is not None and beta_low >= beta_high:
         raise SystemExit("--beta-low must be < --beta-high.")
 
+    pca_k_low = script_args.pca_k_low if script_args.pca_k_low is not None else PCA_K_LOW_DEFAULT
+    pca_k_high = script_args.pca_k_high if script_args.pca_k_high is not None else PCA_K_HIGH_DEFAULT
+    if (script_args.pca_k_low is None) ^ (script_args.pca_k_high is None):
+        raise SystemExit("Provide both --pca-k-low and --pca-k-high, or neither.")
+    if pca_k_low >= pca_k_high:
+        raise SystemExit("--pca-k-low must be < --pca-k-high.")
+
     def objective(trial: optuna.Trial) -> float:
         if beta_low is not None and beta_high is not None:
             params = suggest_hyperparams(
@@ -177,12 +202,22 @@ def main() -> None:
                 beta_low=beta_low,
                 beta_high=beta_high,
                 beta_log=not script_args.beta_linear,
+                pca_k_low=pca_k_low,
+                pca_k_high=pca_k_high,
+                pca_k_log=script_args.pca_k_log,
             )
         else:
-            params = suggest_hyperparams(trial, beta_log=not script_args.beta_linear)
+            params = suggest_hyperparams(
+                trial,
+                beta_log=not script_args.beta_linear,
+                pca_k_low=pca_k_low,
+                pca_k_high=pca_k_high,
+                pca_k_log=script_args.pca_k_log,
+            )
 
         qa = argparse.Namespace(**vars(quant_args))
         apply_tune_params(qa, params)
+        layer_stats = mq.collect_layer_stats(qa, process_model, forward_list)
         qa.scale_path = os.path.join(trials_dir, f"trial_{trial.number:04d}.pt")
         qa.results_path = os.path.join(trials_dir, f"trial_{trial.number:04d}.summary.json")
         eval_out = os.path.join(script_args.output_dir, "eval_logs", f"trial_{trial.number:04d}")
@@ -235,7 +270,12 @@ def main() -> None:
         "n_trials": len(study.trials),
         "best_value": best.value,
         "best_params": dict(best.params),
-        "best_tune_hyperparams": asdict(TuneHyperParams(beta=best.params["beta"])),
+        "best_tune_hyperparams": asdict(
+            TuneHyperParams(
+                beta=best.params["beta"],
+                pca_k=int(best.params["pca_k"]),
+            )
+        ),
         "best_trial_number": best.number,
         "config": os.path.abspath(script_args.config),
         "tasks": script_args.tasks,

@@ -207,22 +207,22 @@ python scripts/optuna_tune.py \
   --config configs/default.yaml \
   --tasks mmmu_val \
   --metric-substring mmmu_acc \
-  --n-trials 20 \
+  --n-trials 30 \
   --output-dir optuna_study/mmmu_beta \
   --discard-trial-artifacts
 ```
 
 说明：
 
-- 脚本会**只做一次**校准与 PCA 统计，每个 trial 仅更换 `beta` 并重跑「重要性 → 选通道 → 伪量化 → 评测」，比重复跑完整 `main_quant` 全流程更省时间。
+- 脚本会**只做一次**校准数据准备；每个 trial 会根据 Optuna 建议的 **`beta` 与 `pca_k` 重新收集 PCA 统计**（`pca_k` 变化时必须重算），再跑「重要性 → 选通道 → 伪量化 → 评测」。默认 **`--n-trials` 为 30**；可用 **`--pca-k-low` / `--pca-k-high`** 收窄 `pca_k` 搜索区间。
 - 结果目录下最终会写出 **`best_params.json`**（含最优 `beta` 等）。若**不加** `--discard-trial-artifacts`，每个 trial 会在 `trial_checkpoints/` 下保留一份 `.pt` 与同名的 `.summary.json`，体量与完整模型权重相当，**多 trial 会占满磁盘**。
 - 若加上 **`--discard-trial-artifacts`**：每个 trial 在打分结束后会**自动删除**该 trial 的 `.pt`、`.summary.json` 以及本次评测输出目录（`eval_logs/trial_XXXX/`），仅保留 Optuna 记录的分数与最终的 `best_params.json`；需要权重时请用最优 `beta` **再跑一次** `main_quant.py`（见下「步骤 4」）。
 - `optuna_study/` 已在 `.gitignore` 中，避免误提交。
 
 **步骤 4 — 将最优 `beta` 写回配置并执行最终量化**：
 
-1. 打开 `optuna_study/mmmu_beta/best_params.json`，记下 `best_params.beta`（或 `best_tune_hyperparams` 中的值）。
-2. 编辑 `configs/default.yaml`，将 `beta` 设为该值（并保持 `method` 仍为 `proj_log` 或 `proj_norm`）。
+1. 打开 `optuna_study/mmmu_beta/best_params.json`，记下 `best_params.beta` 与 `best_params.pca_k`（或 `best_tune_hyperparams` 中的值）。
+2. 编辑 `configs/default.yaml`，将 `beta`、`pca_k` 设为上述值（并保持 `method` 仍为 `proj_log` 或 `proj_norm`）。
 3. 设定你希望的最终权重路径，例如 `scale_path: "scale_cache/pca_quant_model.pt"`，再运行：
 
    ```bash

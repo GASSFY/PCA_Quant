@@ -8,6 +8,9 @@ from .types import TuneHyperParams
 # Default bounds for beta (proj_log / proj_norm); override via CLI on the study script.
 BETA_LOW_DEFAULT = 1e-4
 BETA_HIGH_DEFAULT = 5.0
+# Integer PCA component count (must match collect_pca_stats / in_features caps inside PCA code).
+PCA_K_LOW_DEFAULT = 8
+PCA_K_HIGH_DEFAULT = 128
 
 
 def suggest_hyperparams(
@@ -16,12 +19,12 @@ def suggest_hyperparams(
     beta_low: float = BETA_LOW_DEFAULT,
     beta_high: float = BETA_HIGH_DEFAULT,
     beta_log: bool = True,
-    pca_k_low: int = 1,
-    pca_k_high: int = 100,
-    pca_k_log: bool = True,
+    pca_k_low: int = PCA_K_LOW_DEFAULT,
+    pca_k_high: int = PCA_K_HIGH_DEFAULT,
+    pca_k_log: bool = False,
 ) -> TuneHyperParams:
     """
-    Central entry for all tunable scalars. Phase 1: beta only.
+    Central entry for all tunable scalars (beta, pca_k).
 
     When adding parameters, extend TuneHyperParams and append suggest_* here.
     """
