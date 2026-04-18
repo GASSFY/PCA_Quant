@@ -71,6 +71,8 @@ def compute_row_projection_norm(
             raise ValueError(
                 f"Basis rows ({basis.shape[0]}) must match input features ({in_features})."
             )
+    # layer_stats stores basis on CPU (see activation_collector); weights may be CUDA after to_cuda / eval.
+    basis = basis.to(device=weight.device)
     # For row vectors, projection to PCA subspace is w * (U U^T) = (wU) U^T.
     # Since U has orthonormal columns, ||w (U U^T)||_2 = ||wU||_2.
     proj_coeff = torch.matmul(weight.float(), basis.float())

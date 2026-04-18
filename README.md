@@ -208,13 +208,16 @@ python scripts/optuna_tune.py \
   --tasks mmmu_val \
   --metric-substring mmmu_acc \
   --n-trials 20 \
-  --output-dir optuna_study/mmmu_beta
+  --output-dir optuna_study/mmmu_beta \
+  --discard-trial-artifacts
 ```
 
 说明：
 
 - 脚本会**只做一次**校准与 PCA 统计，每个 trial 仅更换 `beta` 并重跑「重要性 → 选通道 → 伪量化 → 评测」，比重复跑完整 `main_quant` 全流程更省时间。
-- 结果目录下会生成 **`best_params.json`**（含最优 `beta`）以及各 trial 的 checkpoint；`optuna_study/` 已在 `.gitignore` 中，避免误提交。
+- 结果目录下最终会写出 **`best_params.json`**（含最优 `beta` 等）。若**不加** `--discard-trial-artifacts`，每个 trial 会在 `trial_checkpoints/` 下保留一份 `.pt` 与同名的 `.summary.json`，体量与完整模型权重相当，**多 trial 会占满磁盘**。
+- 若加上 **`--discard-trial-artifacts`**：每个 trial 在打分结束后会**自动删除**该 trial 的 `.pt`、`.summary.json` 以及本次评测输出目录（`eval_logs/trial_XXXX/`），仅保留 Optuna 记录的分数与最终的 `best_params.json`；需要权重时请用最优 `beta` **再跑一次** `main_quant.py`（见下「步骤 4」）。
+- `optuna_study/` 已在 `.gitignore` 中，避免误提交。
 
 **步骤 4 — 将最优 `beta` 写回配置并执行最终量化**：
 
@@ -237,7 +240,7 @@ python scripts/optuna_tune.py \
 | 目的 | 命令 |
 |------|------|
 | 日常量化（固定 `beta`） | `python main_quant.py --config configs/default.yaml` |
-| 调参搜索 `beta` | `python scripts/optuna_tune.py --config ... --tasks ... --output-dir ...` |
+| 调参搜索 `beta`（省磁盘建议加 `--discard-trial-artifacts`） | `python scripts/optuna_tune.py --config ... --tasks ... --output-dir ...` |
 | 搜索完成后，用最优 `beta` 再训一次权重 | 把 `beta` 写入 YAML 后，再次 `python main_quant.py --config configs/default.yaml` |
 
 扩展搜索维度（除 `beta` 外更多超参）时，见 [`tune/README.md`](tune/README.md)。

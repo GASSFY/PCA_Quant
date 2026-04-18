@@ -14,17 +14,39 @@ Example (from repository root)::
         --output-dir tune_runs/mmmu_beta
 
 ``--method`` in the YAML should be ``proj_log`` or ``proj_norm`` so ``beta`` matters.
+Pass ``--discard-trial-artifacts`` to delete each trial's ``.pt`` and eval outputs after scoring (saves disk).
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import shutil
 import sys
 import warnings
 from dataclasses import asdict
 
 warnings.simplefilter("ignore", category=DeprecationWarning)
+
+
+def _safe_remove_file(path: str | None) -> None:
+    if not path:
+        return
+    try:
+        if os.path.isfile(path):
+            os.remove(path)
+    except OSError:
+        pass
+
+
+def _safe_rmtree(path: str | None) -> None:
+    if not path:
+        return
+    try:
+        if os.path.isdir(path):
+            shutil.rmtree(path, ignore_errors=True)
+    except OSError:
+        pass
 
 
 def _parse_quant_args_from_config(config_path: str, extra_argv: list[str] | None) -> argparse.Namespace:
@@ -107,6 +129,15 @@ def main() -> None:
         default=[],
         help="Extra argv tokens passed to main_eval after --config.",
     )
+    parser.add_argument(
+        "--discard-trial-artifacts",
+        action="store_true",
+        help=(
+            "After each trial (success or failure), delete that trial's .pt, "
+            ".summary.json, and eval output directory to save disk space. "
+            "best_params.json is still written at the end; re-run main_quant.py with the best beta to reproduce weights."
+        ),
+    )
     script_args = parser.parse_args()
 
     os.makedirs(script_args.output_dir, exist_ok=True)
@@ -154,26 +185,35 @@ def main() -> None:
         apply_tune_params(qa, params)
         qa.scale_path = os.path.join(trials_dir, f"trial_{trial.number:04d}.pt")
         qa.results_path = os.path.join(trials_dir, f"trial_{trial.number:04d}.summary.json")
+        eval_out = os.path.join(script_args.output_dir, "eval_logs", f"trial_{trial.number:04d}")
 
-        mq.run_quantization_from_cached_stats(qa, lm, process_model, layer_stats, baseline_cpu)
-
-        ea = argparse.Namespace(**vars(eval_args))
-        ea.tasks = script_args.tasks
-        ea.scale_path = qa.scale_path
-        ea.output_path = os.path.join(script_args.output_dir, "eval_logs", f"trial_{trial.number:04d}")
-
-        results = me.run_eval(ea)
-        if results is None:
-            return -1e9
-
+        discard = script_args.discard_trial_artifacts
+        score_out = -1e9
         try:
-            score = extract_task_metric(results, primary_task, script_args.metric_substring)
-        except (KeyError, TypeError, ValueError) as exc:
-            trial.set_user_attr("metric_error", str(exc))
-            return -1e9
+            mq.run_quantization_from_cached_stats(qa, lm, process_model, layer_stats, baseline_cpu)
 
-        trial.set_user_attr("scale_path", qa.scale_path)
-        return score
+            ea = argparse.Namespace(**vars(eval_args))
+            ea.tasks = script_args.tasks
+            ea.scale_path = qa.scale_path
+            ea.output_path = eval_out
+
+            results = me.run_eval(ea)
+            if results is None:
+                return score_out
+
+            try:
+                score_out = extract_task_metric(results, primary_task, script_args.metric_substring)
+            except (KeyError, TypeError, ValueError) as exc:
+                trial.set_user_attr("metric_error", str(exc))
+                return score_out
+
+            trial.set_user_attr("scale_path", qa.scale_path)
+            return score_out
+        finally:
+            if discard:
+                _safe_remove_file(qa.scale_path)
+                _safe_remove_file(qa.results_path)
+                _safe_rmtree(eval_out)
 
     sampler = TPESampler(seed=script_args.seed)
     if script_args.storage:

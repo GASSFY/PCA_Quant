@@ -17,3 +17,7 @@
 ## Note on `beta`
 
 `beta` only affects scoring for `proj_log` and `proj_norm`. Use one of those methods when tuning `beta`.
+
+## Disk space (`scripts/optuna_tune.py`)
+
+Use `--discard-trial-artifacts` to delete each trial’s `.pt`, summary json, and eval log folder after scoring. Otherwise every trial keeps a full checkpoint under `trial_checkpoints/`.

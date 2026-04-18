@@ -50,7 +50,9 @@ def compute_global_importance_list(
             denom = torch.tensor(1.0)
 
         for key, weight, _gate, abs_proj in layer_rows:
-            abs_zscore = (abs_proj.float() - mean) / denom
+            m = mean.to(device=abs_proj.device, dtype=abs_proj.dtype)
+            d = denom.to(device=abs_proj.device, dtype=abs_proj.dtype)
+            abs_zscore = (abs_proj.float() - m.float()) / d.float().clamp(min=1e-8)
             stats = layer_stats[key]
             scores = compute_importance_score(
                 method=method,
