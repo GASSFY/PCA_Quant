@@ -1,4 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual / local env
+.env
+.venv
+venv/
+ENV/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Project outputs (quant weights, eval JSON, ad-hoc experiment dirs)
+scale_cache/
+eval_results/
+eval_new_results/
+test_result/
+
+*.log
+
+# External clones (typical dev layout)
 LLaVA-NeXT/
 lmms-eval/
+
 configs/*
 !configs/*.example
