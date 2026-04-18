@@ -1,3 +1,4 @@
 LLaVA-NeXT/
 lmms-eval/
-configs/
+configs/*
+!configs/*.example

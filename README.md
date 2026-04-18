@@ -50,8 +50,8 @@ PCA_Quant/
 ├── main_quant.py                 # 量化入口
 ├── main_eval.py                  # 评测入口
 ├── configs/
-│   ├── default.yaml
-│   └── config.example.yaml
+│   ├── default.yaml.example   # 仓库内模板（会提交）
+│   └── default.yaml           # 本地配置（不提交，从模板复制）
 └── PCA/
     ├── calibration/
     │   └── coco.py              # 校准数据读取
@@ -115,7 +115,13 @@ PCA_Quant/
 
 ### 1. 使用配置文件（推荐）
 
-先在 `configs/default.yaml` 里填好：
+首次使用请从模板复制一份本地配置（`default.yaml` 不会被 Git 跟踪）：
+
+```bash
+cp configs/default.yaml.example configs/default.yaml
+```
+
+然后在 `configs/default.yaml` 里填好：
 - 模型：`model`、`model_args`
 - 数据：`data_path`、`image_folder`
 - 输出：`scale_path`、`results_path`
@@ -163,10 +169,10 @@ python main_eval.py \
 
 ## 配置文件
 
+- `configs/default.yaml.example`
+  - 仓库内提交的模板；更新依赖或加新字段时以它为准
 - `configs/default.yaml`
-  - 一份可直接修改后运行的默认配置
-- `configs/config.example.yaml`
-  - 轻量示例配置，可作为复制模板
+  - 本地运行用配置，从模板复制后自行修改，**不会被 Git 跟踪**（与 `ASDQ` 的 `configs/default.yaml` + `default.yaml.example` 约定一致）
 
 推荐先只改三类字段：
 

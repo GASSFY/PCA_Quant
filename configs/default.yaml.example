@@ -1,4 +1,4 @@
-# See `configs/default.yaml` for the canonical example.
+# Copy to `configs/default.yaml` and edit (default.yaml is not tracked by git).
 model: llava_onevision
 model_args: "pretrained=your/model-name"
 batch_size: "1"
