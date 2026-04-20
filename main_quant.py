@@ -65,6 +65,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--high_bit", type=int, default=16)
     parser.add_argument("--low_bit", type=int, default=4)
     parser.add_argument("--beta", type=float, default=1.0)
+    parser.add_argument(
+        "--layerwise_params",
+        type=str,
+        default=None,
+        help="Optional JSON with per-layer beta/pca_k (keeps global defaults for missing layers).",
+    )
     return parser.parse_args()
 
 
@@ -161,16 +167,41 @@ def prepare_calibration_forward_kwargs(
     raise ValueError("PCA quantization requires calibration data_path and image_folder.")
 
 
+def _load_layerwise_params(
+    path: str | None,
+) -> tuple[dict[str, int] | None, dict[str, float] | None, dict[str, Any] | None]:
+    if not path:
+        return None, None, None
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    layers = data.get("layers", data)
+    if not isinstance(layers, dict):
+        raise ValueError(f"layerwise params must be a dict-like object: {path}")
+    pca_k_map: dict[str, int] = {}
+    beta_map: dict[str, float] = {}
+    for key, val in layers.items():
+        if not isinstance(val, dict):
+            continue
+        if "pca_k" in val:
+            pca_k_map[str(key)] = int(val["pca_k"])
+        if "beta" in val:
+            beta_map[str(key)] = float(val["beta"])
+    return pca_k_map or None, beta_map or None, data
+
+
 def collect_layer_stats(
     args: argparse.Namespace,
     process_model,
     forward_kwargs_list: list,
+    pca_k_map: dict[str, int] | None = None,
+    store_input_samples: bool = False,
 ) -> dict[str, Any]:
     layer_stats = collect_pca_stats(
         process_model,
         forward_kwargs_list,
-        pca_k=args.pca_k,
+        pca_k=pca_k_map if pca_k_map is not None else args.pca_k,
         max_tokens_per_layer=args.pca_sample_size,
+        store_input_samples=store_input_samples,
     )
     print(f"[PCA] Collected PCA stats for {len(layer_stats)} linear layers.")
     return layer_stats
@@ -182,6 +213,9 @@ def run_quantization_from_cached_stats(
     process_model,
     layer_stats: dict[str, Any],
     baseline_state_cpu: dict[str, torch.Tensor],
+    beta_map: dict[str, float] | None = None,
+    pca_k_map: dict[str, int] | None = None,
+    layerwise_source: str | None = None,
 ) -> None:
     """
     Restore FP weights from ``baseline_state_cpu``, then run importance -> mask -> pseudo-quant.
@@ -196,6 +230,7 @@ def run_quantization_from_cached_stats(
         layer_stats,
         method=args.method,
         beta=args.beta,
+        beta_map=beta_map,
     )
     high_precision_channels = select_high_precision_channels(
         global_importance_list,
@@ -241,7 +276,13 @@ def run_quantization_from_cached_stats(
         "num_global_channels": len(global_importance_list),
         "num_high_precision_channels": len(high_precision_channels),
         "scale_path": args.scale_path,
+        "layerwise_mode": bool(beta_map or pca_k_map),
+        "layerwise_params_path": layerwise_source,
     }
+    if pca_k_map:
+        summary["num_layerwise_pca_k"] = len(pca_k_map)
+    if beta_map:
+        summary["num_layerwise_beta"] = len(beta_map)
     _save_summary(args.results_path or _default_results_path(args.scale_path), summary)
 
 
@@ -260,9 +301,24 @@ def _run_single(args: argparse.Namespace) -> None:
         return
 
     forward_kwargs_list = prepare_calibration_forward_kwargs(args, process_model)
-    layer_stats = collect_layer_stats(args, process_model, forward_kwargs_list)
+    pca_k_map, beta_map, _ = _load_layerwise_params(args.layerwise_params)
+    layer_stats = collect_layer_stats(
+        args,
+        process_model,
+        forward_kwargs_list,
+        pca_k_map=pca_k_map,
+    )
     baseline_cpu = clone_model_state_dict_cpu(lm._model)
-    run_quantization_from_cached_stats(args, lm, process_model, layer_stats, baseline_cpu)
+    run_quantization_from_cached_stats(
+        args,
+        lm,
+        process_model,
+        layer_stats,
+        baseline_cpu,
+        beta_map=beta_map,
+        pca_k_map=pca_k_map,
+        layerwise_source=args.layerwise_params,
+    )
 
 
 def cli_main(args: Union[argparse.Namespace, None] = None) -> None:

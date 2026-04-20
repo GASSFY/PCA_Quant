@@ -17,6 +17,7 @@ def compute_global_importance_list(
     layer_stats: dict[str, dict[str, torch.Tensor | int]],
     method: str = "gate_only",
     beta: float = 1.0,
+    beta_map: dict[str, float] | None = None,
 ) -> list[tuple[str, int, float]]:
     layers = get_blocks(model)
     result: list[tuple[str, int, float]] = []
@@ -54,11 +55,12 @@ def compute_global_importance_list(
             d = denom.to(device=abs_proj.device, dtype=abs_proj.dtype)
             abs_zscore = (abs_proj.float() - m.float()) / d.float().clamp(min=1e-8)
             stats = layer_stats[key]
+            beta_val = float(beta_map.get(key, beta)) if beta_map is not None else beta
             scores = compute_importance_score(
                 method=method,
                 weight=weight,
                 basis=stats["basis"],
-                beta=beta,
+                beta=beta_val,
                 abs_zscore=abs_zscore,
             )
             for row_idx in range(scores.shape[0]):
@@ -71,11 +73,12 @@ def compute_global_importance_list(
             if key not in layer_stats:
                 continue
             stats = layer_stats[key]
+            beta_val = float(beta_map.get(key, beta)) if beta_map is not None else beta
             scores = compute_importance_score(
                 method=method,
                 weight=linear.weight.data,
                 basis=stats["basis"],
-                beta=beta,
+                beta=beta_val,
             )
             for row_idx in range(scores.shape[0]):
                 result.append((key, row_idx, float(scores[row_idx].item())))

@@ -42,8 +42,9 @@ def _take_samples(x: torch.Tensor, limit: int) -> torch.Tensor:
 def collect_pca_stats(
     model_wrapper,
     forward_kwargs_list: list[dict],
-    pca_k: int = 32,
+    pca_k: int | dict[str, int] = 32,
     max_tokens_per_layer: int = 512,
+    store_input_samples: bool = False,
 ) -> dict[str, dict[str, torch.Tensor | int]]:
     model = model_wrapper.model
     layers = get_blocks(model)
@@ -146,7 +147,11 @@ def collect_pca_stats(
 
         for key in samples:
             sample = torch.cat(samples[key], dim=0) # [num_tokens, hidden_dim]
-            q = min(max(1, pca_k), sample.shape[0], sample.shape[1])
+            if isinstance(pca_k, dict):
+                k_raw = int(pca_k.get(key, 32))
+            else:
+                k_raw = int(pca_k)
+            q = min(max(1, k_raw), sample.shape[0], sample.shape[1])
             # basis 为主方向矩阵，[hidden_dim, q]，eigenvalues 表示每个方向的重要程度（方差大小）
             basis, eigenvalues = compute_pca_components(activations=sample, k=q)    
             layer_stats[key] = {
@@ -156,6 +161,8 @@ def collect_pca_stats(
                 "num_tokens": count[key],
                 "sample_size": sample.shape[0],
             }
+            if store_input_samples:
+                layer_stats[key]["sample_input"] = sample.cpu()
 
         all_inps = new_inps
         layers[layer_idx] = layer.cpu()

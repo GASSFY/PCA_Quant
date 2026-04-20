@@ -188,7 +188,7 @@ python main_quant.py \
 
 ---
 
-### 方式三：用 Optuna 搜索 `beta` 后再做「最终」量化（可选）
+### 方式三：全局模式（保留原方案）- Optuna 搜索全局 `beta/pca_k`
 
 适用场景：希望在固定任务指标（如 `mmmu_val` 的 `mmmu_acc`）下自动搜索 `beta`，再把最优值用于一次正式量化。
 
@@ -207,14 +207,14 @@ python scripts/optuna_tune.py \
   --config configs/default.yaml \
   --tasks mmmu_val \
   --metric-substring mmmu_acc \
-  --n-trials 30 \
+  --n-trials 25 \
   --output-dir optuna_study/mmmu_beta \
   --discard-trial-artifacts
 ```
 
 说明：
 
-- 脚本会**只做一次**校准数据准备；每个 trial 会根据 Optuna 建议的 **`beta` 与 `pca_k` 重新收集 PCA 统计**（`pca_k` 变化时必须重算），再跑「重要性 → 选通道 → 伪量化 → 评测」。默认 **`--n-trials` 为 30**；可用 **`--pca-k-low` / `--pca-k-high`** 收窄 `pca_k` 搜索区间。
+- 脚本会**只做一次**校准数据准备；每个 trial 会根据 Optuna 建议的 **`beta` 与 `pca_k` 重新收集 PCA 统计**（`pca_k` 变化时必须重算），再跑「重要性 → 选通道 → 伪量化 → 评测」。默认 **`--n-trials` 为 25**；可用 **`--pca-k-low` / `--pca-k-high`** 收窄 `pca_k` 搜索区间。
 - 结果目录下最终会写出 **`best_params.json`**（含最优 `beta` 等）。若**不加** `--discard-trial-artifacts`，每个 trial 会在 `trial_checkpoints/` 下保留一份 `.pt` 与同名的 `.summary.json`，体量与完整模型权重相当，**多 trial 会占满磁盘**。
 - 若加上 **`--discard-trial-artifacts`**：每个 trial 在打分结束后会**自动删除**该 trial 的 `.pt`、`.summary.json` 以及本次评测输出目录（`eval_logs/trial_XXXX/`），仅保留 Optuna 记录的分数与最终的 `best_params.json`；需要权重时请用最优 `beta` **再跑一次** `main_quant.py`（见下「步骤 4」）。
 - `optuna_study/` 已在 `.gitignore` 中，避免误提交。
@@ -235,13 +235,52 @@ python scripts/optuna_tune.py \
 
 ---
 
-### 小结：我该用哪条命令「执行量化」？
+### 方式四：逐层模式（新增方案）- 每层学习 `beta_l/pca_k_l`（按层 MSE）
+
+适用场景：希望每个线性层都有独立参数，用层输出 MSE 做学习目标，并直接导出最终量化 checkpoint。
+
+**步骤 1 — 运行逐层搜索并导出最终权重**：
+
+```bash
+python scripts/optuna_tune_layerwise.py \
+  --config configs/default.yaml \
+  --n-trials-layer 5 \
+  --output-dir optuna_study/layerwise_mse
+```
+
+输出文件：
+
+- `optuna_study/layerwise_mse/layerwise_params.json`：每层最优 `beta/pca_k` 与该层最优 MSE
+- `optuna_study/layerwise_mse/layerwise_quant.pt`：基于逐层参数导出的最终量化 checkpoint
+- `optuna_study/layerwise_mse/layerwise_quant.summary.json`：最终量化摘要
+
+说明：
+
+- 该脚本会先做逐层优化，再自动执行一次全模型量化导出 `.pt`，不需要手动再跑一次。
+- 当前逐层模式要求 `w_group > 0`（严格分组量化）。
+- 建议先用默认 `--n-trials-layer 5` 跑通，再按时间预算上调。
+
+**步骤 2（可选）— 用已有逐层参数直接量化**：
+
+```bash
+python main_quant.py \
+  --config configs/default.yaml \
+  --run_process \
+  --layerwise_params optuna_study/layerwise_mse/layerwise_params.json \
+  --scale_path scale_cache/layerwise_quant.pt \
+  --results_path scale_cache/layerwise_quant.summary.json
+```
+
+---
+
+### 小结：两种方案如何运行？
 
 | 目的 | 命令 |
 |------|------|
 | 日常量化（固定 `beta`） | `python main_quant.py --config configs/default.yaml` |
-| 调参搜索 `beta`（省磁盘建议加 `--discard-trial-artifacts`） | `python scripts/optuna_tune.py --config ... --tasks ... --output-dir ...` |
-| 搜索完成后，用最优 `beta` 再训一次权重 | 把 `beta` 写入 YAML 后，再次 `python main_quant.py --config configs/default.yaml` |
+| 全局模式：搜索全局 `beta/pca_k` + 任务集评测 | `python scripts/optuna_tune.py --config ... --tasks ... --n-trials 25 --output-dir ...` |
+| 逐层模式：每层搜索 `beta_l/pca_k_l`（MSE）并导出 `.pt` | `python scripts/optuna_tune_layerwise.py --config ... --n-trials-layer 5 --output-dir ...` |
+| 用已有逐层参数直接量化 | `python main_quant.py --config ... --run_process --layerwise_params ... --scale_path ...` |
 
 扩展搜索维度（除 `beta` 外更多超参）时，见 [`tune/README.md`](tune/README.md)。
 

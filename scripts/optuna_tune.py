@@ -111,7 +111,7 @@ def main() -> None:
         default="mmmu_acc",
         help="Substring to match inside results[task] keys (e.g. mmmu_acc, exact_match).",
     )
-    parser.add_argument("--n-trials", type=int, default=30, help="Number of Optuna trials (default: 30).")
+    parser.add_argument("--n-trials", type=int, default=25, help="Number of Optuna trials (default: 25).")
     parser.add_argument("--study-name", default="pca_beta", help="Optuna study name.")
     parser.add_argument("--output-dir", default="optuna_study", help="Trial checkpoints and best_params.json.")
     parser.add_argument("--seed", type=int, default=0)
