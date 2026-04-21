@@ -34,12 +34,12 @@ def compute_pca_components(
     if covariance is None:
         if activations is None:
             raise ValueError("Either activations or covariance must be provided.")
-        x = _flatten_activations(activations)
-        x = x - x.mean(dim=0, keepdim=True)
+        x = _flatten_activations(activations)   # 将输入张量变成[tokens, hidden_dim]
+        x = x - x.mean(dim=0, keepdim=True)     # 对每一个输入维度/输入通道，计算均值，然后减去均值，得到中心化后的数据
         q = min(max(1, k), x.shape[0], x.shape[1])
-        _, s, v = torch.pca_lowrank(x, q=q, center=False)
-        denom = max(1, x.shape[0] - 1)
-        eigenvalues = (s[:q] ** 2) / denom
+        _, s, v = torch.pca_lowrank(x, q=q, center=False)   # s 是特征值，v 即 PCA 主成分
+        denom = max(1, x.shape[0] - 1)    # 分母是样本数量减一，因为是无偏估计
+        eigenvalues = (s[:q] ** 2) / denom    # 特征值的平方除以分母，得到方差
         return v[:, :q], eigenvalues
 
     covariance = covariance.float()

@@ -27,7 +27,7 @@ def move_embed(model: nn.Module, device: str) -> None:
         elif hasattr(inner, "embed_tokens"):
             inner.embed_tokens = inner.embed_tokens.to(device)
 
-
+# 等间隔采样，每隔 limit 采集一个，原因是计算 PCA 要求样本分布更加均匀
 def _take_samples(x: torch.Tensor, limit: int) -> torch.Tensor:
     if x.shape[0] <= limit:
         return x
