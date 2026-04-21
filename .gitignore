@@ -21,6 +21,7 @@ eval_results/
 eval_new_results/
 test_result/
 optuna_study/
+ablation_runs/
 
 *.log
 
