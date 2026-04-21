@@ -79,6 +79,24 @@ log_run() {
   "$@" 2>&1 | tee "$logfile"
 }
 
+write_log_header() {
+  local logfile="$1"
+  shift
+  {
+    echo "===== RUN HEADER ====="
+    for line in "$@"; do
+      echo "$line"
+    done
+    echo "======================"
+  } > "$logfile"
+}
+
+append_run_log() {
+  local logfile="$1"
+  shift
+  "$@" 2>&1 | tee -a "$logfile"
+}
+
 write_overridden_config() {
   local out_cfg="$1"
   local model="$2"
@@ -114,6 +132,82 @@ with open(dst,'w',encoding='utf-8') as f:
 " "$CONFIG_PATH" "$out_cfg" "$model" "$model_args" "$task" "$method" "$ratio" "$low_bit" "$high_bit"
 }
 
+write_eval_config() {
+  local out_cfg="$1"
+  local model="$2"
+  local model_args="$3"
+  local task="$4"
+  local scale_path="$5"
+  local output_path="$6"
+
+  python3 -c "import sys,yaml
+src=sys.argv[1]
+dst=sys.argv[2]
+model=sys.argv[3]
+model_args=sys.argv[4]
+task=sys.argv[5]
+scale_path=sys.argv[6]
+output_path=sys.argv[7]
+with open(src,'r',encoding='utf-8') as f:
+    cfg=yaml.safe_load(f) or {}
+cfg['model']=model
+cfg['model_args']=model_args
+cfg['tasks']=task
+cfg['scale_path']=scale_path
+cfg['output_path']=output_path
+with open(dst,'w',encoding='utf-8') as f:
+    yaml.safe_dump(cfg,f,allow_unicode=True,sort_keys=False)
+" "$CONFIG_PATH" "$out_cfg" "$model" "$model_args" "$task" "$scale_path" "$output_path"
+}
+
+write_quant_config() {
+  local out_cfg="$1"
+  local model="$2"
+  local model_args="$3"
+  local method="$4"
+  local ratio="$5"
+  local beta="$6"
+  local pca_k="$7"
+  local low_bit="$8"
+  local high_bit="$9"
+  local scale_path="${10}"
+  local results_path="${11}"
+  local layerwise_json="${12}"
+
+  python3 -c "import sys,yaml
+src=sys.argv[1]
+dst=sys.argv[2]
+model=sys.argv[3]
+model_args=sys.argv[4]
+method=sys.argv[5]
+ratio=float(sys.argv[6])
+beta=float(sys.argv[7])
+pca_k=int(sys.argv[8])
+low_bit=int(sys.argv[9])
+high_bit=int(sys.argv[10])
+scale_path=sys.argv[11]
+results_path=sys.argv[12]
+layerwise_json=sys.argv[13]
+with open(src,'r',encoding='utf-8') as f:
+    cfg=yaml.safe_load(f) or {}
+cfg['model']=model
+cfg['model_args']=model_args
+cfg['run_process']=True
+cfg['method']=method
+cfg['high_precision_ratio']=ratio
+cfg['beta']=beta
+cfg['pca_k']=pca_k
+cfg['low_bit']=low_bit
+cfg['high_bit']=high_bit
+cfg['scale_path']=scale_path
+cfg['results_path']=results_path
+if layerwise_json:
+    cfg['layerwise_params']=layerwise_json
+with open(dst,'w',encoding='utf-8') as f:
+    yaml.safe_dump(cfg,f,allow_unicode=True,sort_keys=False)
+" "$CONFIG_PATH" "$out_cfg" "$model" "$model_args" "$method" "$ratio" "$beta" "$pca_k" "$low_bit" "$high_bit" "$scale_path" "$results_path" "$layerwise_json"
+}
+
 delete_if_needed() {
   local path="$1"
   if [ "$DELETE_INTERMEDIATE_PT" = "1" ] && [ -f "$path" ]; then
@@ -129,15 +223,20 @@ run_eval() {
   local scale_path="$4"
   local out_dir="$5"
   local log_file="$6"
+  local eval_cfg="${out_dir}/eval_config.yaml"
 
   mkdir -p "$out_dir"
-  log_run "$log_file" python3 main_eval.py \
-    --config "$CONFIG_PATH" \
-    --model "$model" \
-    --model_args "$model_args" \
-    --tasks "$task" \
-    --output_path "$out_dir" \
-    --scale_path "$scale_path"
+  write_eval_config "$eval_cfg" "$model" "$model_args" "$task" "$scale_path" "$out_dir"
+  write_log_header "$log_file" \
+    "stage=eval" \
+    "task=${task}" \
+    "model=${model}" \
+    "model_args=${model_args}" \
+    "config=${eval_cfg}" \
+    "effective_scale_path=${scale_path:-<empty>}" \
+    "effective_output_path=${out_dir}"
+  append_run_log "$log_file" python3 main_eval.py \
+    --config "$eval_cfg"
 }
 
 run_quant() {
@@ -151,35 +250,22 @@ run_quant() {
   local scale_path="$8"
   local summary_path="$9"
   local log_file="${10}"
+  local quant_cfg
+  quant_cfg="$(dirname "$scale_path")/quant_config.yaml"
 
-  if [ -n "$layerwise_json" ]; then
-    log_run "$log_file" python3 main_quant.py \
-      --config "$CONFIG_PATH" \
-      --model "$model" \
-      --model_args "$model_args" \
-      --run_process \
-      --method "$method" \
-      --high_precision_ratio "$ratio" \
-      --low_bit "$LOW_BIT" \
-      --high_bit "$HIGH_BIT" \
-      --scale_path "$scale_path" \
-      --results_path "$summary_path" \
-      --layerwise_params "$layerwise_json"
-  else
-    log_run "$log_file" python3 main_quant.py \
-      --config "$CONFIG_PATH" \
-      --model "$model" \
-      --model_args "$model_args" \
-      --run_process \
-      --method "$method" \
-      --high_precision_ratio "$ratio" \
-      --low_bit "$LOW_BIT" \
-      --high_bit "$HIGH_BIT" \
-      --beta "$beta" \
-      --pca_k "$pca_k" \
-      --scale_path "$scale_path" \
-      --results_path "$summary_path"
-  fi
+  write_quant_config "$quant_cfg" "$model" "$model_args" "$method" "$ratio" "$beta" "$pca_k" "$LOW_BIT" "$HIGH_BIT" "$scale_path" "$summary_path" "$layerwise_json"
+  write_log_header "$log_file" \
+    "stage=quant" \
+    "model=${model}" \
+    "model_args=${model_args}" \
+    "method=${method}" \
+    "ratio=${ratio}" \
+    "beta=${beta}" \
+    "pca_k=${pca_k}" \
+    "config=${quant_cfg}" \
+    "effective_scale_path=${scale_path}" \
+    "effective_results_path=${summary_path}"
+  append_run_log "$log_file" python3 main_quant.py --config "$quant_cfg"
 }
 
 run_case_quant_eval() {
@@ -267,7 +353,14 @@ for mi in "${!MODEL_TYPES[@]}"; do
     metric_sub="$(metric_for_task "$task")"
     global_cfg="${global_dir}/tune_out/tune_config.yaml"
     write_overridden_config "$global_cfg" "$model" "$model_args" "$task" "proj_log" "$RATIO_MAIN" "$LOW_BIT" "$HIGH_BIT"
-    log_run "${global_dir}/logs/optuna.log" python3 scripts/optuna_tune.py \
+    write_log_header "${global_dir}/logs/optuna.log" \
+      "stage=optuna_global" \
+      "task=${task}" \
+      "model=${model}" \
+      "config=${global_cfg}" \
+      "output_dir=${global_dir}/tune_out" \
+      "metric_substring=${metric_sub}"
+    append_run_log "${global_dir}/logs/optuna.log" python3 scripts/optuna_tune.py \
       --config "$global_cfg" \
       --tasks "$task" \
       --metric-substring "$metric_sub" \
@@ -289,7 +382,14 @@ for mi in "${!MODEL_TYPES[@]}"; do
     mkdir -p "${layer_dir}/logs" "${layer_dir}/tune_out" "${layer_dir}/eval_out"
     layer_cfg="${layer_dir}/tune_out/tune_config.yaml"
     write_overridden_config "$layer_cfg" "$model" "$model_args" "$task" "proj_log" "$RATIO_MAIN" "$LOW_BIT" "$HIGH_BIT"
-    log_run "${layer_dir}/logs/layerwise_tune.log" python3 scripts/optuna_tune_layerwise.py \
+    write_log_header "${layer_dir}/logs/layerwise_tune.log" \
+      "stage=optuna_layerwise" \
+      "task=${task}" \
+      "model=${model}" \
+      "config=${layer_cfg}" \
+      "output_dir=${layer_dir}/tune_out" \
+      "n_trials_layer=${N_TRIALS_LAYERWISE}"
+    append_run_log "${layer_dir}/logs/layerwise_tune.log" python3 scripts/optuna_tune_layerwise.py \
       --config "$layer_cfg" \
       --output-dir "${layer_dir}/tune_out" \
       --n-trials-layer "$N_TRIALS_LAYERWISE" \
