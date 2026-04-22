@@ -126,7 +126,36 @@ rename_eval_result() {
 }
 
 # -----------------------------------------------------------------------------
-# 6) 普通量化流程：main_quant 一次 + main_eval 四次
+# 6) FP16 基线流程：不量化，直接 main_eval 四次
+# -----------------------------------------------------------------------------
+run_fp16_baseline_case() {
+  local model="$1"
+  local model_args="$2"
+  local case_dir="$3"
+
+  mkdir -p "${case_dir}/logs" "${case_dir}/eval_results"
+  cp "$BASE_CONFIG" "${case_dir}/default.yaml"
+  local cfg="${case_dir}/default.yaml"
+
+  # --- 更新 FP16 评测配置（明确不走量化） ---
+  update_yaml "$cfg" "model" "$model" "str"
+  update_yaml "$cfg" "model_args" "$model_args" "str"
+  update_yaml "$cfg" "run_process" "false" "bool"
+  update_yaml "$cfg" "scale_path" "" "str"
+  update_yaml "$cfg" "results_path" "" "str"
+  update_yaml "$cfg" "output_path" "${case_dir}/eval_results" "str"
+
+  # --- 四个任务依次评测，结果按任务名保存 ---
+  for task in "${TASKS[@]}"; do
+    update_yaml "$cfg" "tasks" "$task" "str"
+    echo "[RUN-FP16-EVAL] ${case_dir} task=${task}"
+    python main_eval.py --config "$cfg" 2>&1 | tee -a "${case_dir}/logs/eval.log"
+    rename_eval_result "${case_dir}/eval_results" "$task"
+  done
+}
+
+# -----------------------------------------------------------------------------
+# 7) 普通量化流程：main_quant 一次 + main_eval 四次
 # -----------------------------------------------------------------------------
 run_common_case() {
   local model="$1"
@@ -174,7 +203,7 @@ run_common_case() {
 }
 
 # -----------------------------------------------------------------------------
-# 7) proj_log 流程：optuna_tune_layerwise + main_eval 四次
+# 8) proj_log 流程：optuna_tune_layerwise + main_eval 四次
 # -----------------------------------------------------------------------------
 run_projlog_layerwise_case() {
   local model="$1"
@@ -229,7 +258,7 @@ run_projlog_layerwise_case() {
 }
 
 # -----------------------------------------------------------------------------
-# 8) 主循环
+# 9) 主循环
 # -----------------------------------------------------------------------------
 mkdir -p "$OUT_ROOT"
 echo "========================================================"
@@ -250,6 +279,10 @@ for i in "${!MODEL_TYPES[@]}"; do
   echo "[MODEL] ${model} | ${model_args}"
   echo "[DIR]   ${model_dir}"
   echo "########################################################"
+
+  # 先跑该模型的未量化（FP16）基线，对比使用
+  fp16_dir="${OUT_ROOT}/${model_dir}/fp16"
+  run_fp16_baseline_case "$model" "$model_args" "$fp16_dir"
 
   for low_bit in "${LOW_BITS[@]}"; do
     # 普通量化方法

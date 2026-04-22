@@ -32,6 +32,7 @@ MODEL_ARGSS=(
 # 我希望，统一的量化输出目录为ablation_results，其目录结构为：
 # ablation_results/
 # ├── model_name/
+# │   ├── fp16
 # │   ├── low_bit(2/3/4/6/8各一个)/
 # │   │   ├── ratio_0/
 # │   │   │   ├── gate_only/
