@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 
-from PCA.quantization.quant_funcs import (
+from Sublink.quantization.quant_funcs import (
     pseudo_quantize_tensor,
     pseudo_quantize_weight_with_reserved_rows,
 )

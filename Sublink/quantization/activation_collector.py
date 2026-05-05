@@ -7,8 +7,8 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 
-from PCA.quantization.pca_importance import compute_pca_components
-from PCA.quantization.quantize import _linear_layer_key, get_blocks, get_named_linears
+from Sublink.quantization.pca_importance import compute_pca_components
+from Sublink.quantization.quantize import _linear_layer_key, get_blocks, get_named_linears
 
 
 def move_embed(model: nn.Module, device: str) -> None:
@@ -89,7 +89,7 @@ def collect_pca_stats(
 
     layer_stats: dict[str, dict[str, torch.Tensor | int]] = {}
 
-    for layer_idx in tqdm(range(len(layers)), desc="[PCA] Collecting activation stats..."):
+    for layer_idx in tqdm(range(len(layers)), desc="[Sublink] Collecting activation stats..."):
         layer = layers[layer_idx].cuda()
 
         sum_x2: dict[str, torch.Tensor] = {}

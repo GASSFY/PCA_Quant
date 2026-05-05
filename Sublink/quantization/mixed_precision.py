@@ -4,11 +4,11 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from PCA.quantization.pca_importance import (
+from Sublink.quantization.pca_importance import (
     compute_alignment_metrics,
     compute_importance_score,
 )
-from PCA.quantization.quantize import _linear_layer_key, get_blocks, get_named_linears
+from Sublink.quantization.quantize import _linear_layer_key, get_blocks, get_named_linears
 
 
 @torch.no_grad()

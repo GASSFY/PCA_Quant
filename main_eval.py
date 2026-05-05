@@ -135,7 +135,7 @@ def run_eval(args: argparse.Namespace) -> dict | None:
             lm._model.load_state_dict(state["state_dict"], strict=False)
         else:
             lm._model.load_state_dict(state, strict=False)
-        print(f"[PCA] Loaded quantized state from {args.scale_path}")
+        print(f"[Sublink] Loaded quantized state from {args.scale_path}")
 
     seeds = _parse_seed(getattr(args, "seed", "0,1234,1234,1234"))
     import random

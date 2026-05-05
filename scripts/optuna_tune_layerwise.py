@@ -52,7 +52,7 @@ def _compute_layer_scores(
     weight: torch.Tensor,
     basis: torch.Tensor,
 ) -> torch.Tensor:
-    from PCA.quantization.pca_importance import compute_alignment_metrics, compute_importance_score
+    from Sublink.quantization.pca_importance import compute_alignment_metrics, compute_importance_score
 
     if method == "proj_norm":
         _gate, abs_proj = compute_alignment_metrics(weight=weight, basis=basis)
@@ -90,8 +90,8 @@ def _layer_mse_objective(
 ) -> float:
     import torch.nn.functional as F
 
-    from PCA.quantization.pca_importance import compute_pca_components
-    from PCA.quantization.quant_funcs import pseudo_quantize_weight_with_reserved_rows
+    from Sublink.quantization.pca_importance import compute_pca_components
+    from Sublink.quantization.quant_funcs import pseudo_quantize_weight_with_reserved_rows
 
     q = min(max(1, int(pca_k)), sample_input.shape[0], sample_input.shape[1])
     basis, _ = compute_pca_components(activations=sample_input, k=q)
@@ -134,7 +134,7 @@ def main() -> None:
     from optuna.samplers import TPESampler
 
     import main_quant as mq
-    from PCA.quantization.quantize import get_blocks, get_named_linears
+    from Sublink.quantization.quantize import get_blocks, get_named_linears
 
     parser = argparse.ArgumentParser(description="Layer-wise Optuna tuning for beta and pca_k using per-layer MSE.")
     parser.add_argument("--config", required=True, help="YAML config (same as main_quant).")

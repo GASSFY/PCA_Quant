@@ -24,15 +24,15 @@ warnings.simplefilter("ignore", category=DeprecationWarning)
 
 from lmms_eval.models import get_model
 
-from PCA.calibration import get_multimodal_calib_dataset
-from PCA.models import get_process_model
-from PCA.quantization import (
+from Sublink.calibration import get_multimodal_calib_dataset
+from Sublink.models import get_process_model
+from Sublink.quantization import (
     collect_pca_stats,
     compute_global_importance_list,
     pseudo_quantize_model_weight,
     select_high_precision_channels,
 )
-from PCA.quantization.quantize import get_blocks, get_named_linears
+from Sublink.quantization.quantize import get_blocks, get_named_linears
 
 
 def parse_args() -> argparse.Namespace:
@@ -93,7 +93,7 @@ def _save_summary(path: str | None, summary: dict) -> None:
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
-    print(f"[PCA] Saved summary to {path}")
+    print(f"[Sublink] Saved summary to {path}")
 
 
 def _load_model_and_wrapper(args: argparse.Namespace):
@@ -162,9 +162,9 @@ def prepare_calibration_forward_kwargs(
             interleave_format=args.interleave_format,
             text_data_path=args.text_data_path or None,
         )
-        print(f"[PCA] Calibration data loaded ({len(forward_kwargs_list)} mini-batches).")
+        print(f"[Sublink] Calibration data loaded ({len(forward_kwargs_list)} mini-batches).")
         return forward_kwargs_list
-    raise ValueError("PCA quantization requires calibration data_path and image_folder.")
+    raise ValueError("SubLink quantization requires calibration data_path and image_folder.")
 
 
 def _load_layerwise_params(
@@ -203,7 +203,7 @@ def collect_layer_stats(
         max_tokens_per_layer=args.pca_sample_size,
         store_input_samples=store_input_samples,
     )
-    print(f"[PCA] Collected PCA stats for {len(layer_stats)} linear layers.")
+    print(f"[Sublink] Collected PCA stats for {len(layer_stats)} linear layers.")
     return layer_stats
 
 
@@ -237,7 +237,7 @@ def run_quantization_from_cached_stats(
         args.high_precision_ratio,
     )
     print(
-        "[PCA] Mixed precision selected "
+        "[Sublink] Mixed precision selected "
         f"{len(high_precision_channels)} high-precision rows "
         f"(per-layer ratio={args.high_precision_ratio})."
     )
@@ -257,12 +257,12 @@ def run_quantization_from_cached_stats(
             high_w_bit=args.high_bit,
             low_w_bit=args.low_bit,
         )
-        print("[PCA] Pseudo quantization applied.")
+        print("[Sublink] Pseudo quantization applied.")
 
     if args.scale_path:
         os.makedirs(os.path.dirname(args.scale_path) or ".", exist_ok=True)
         torch.save({"state_dict": lm._model.state_dict()}, args.scale_path)
-        print(f"[PCA] Saved quantized state to {args.scale_path}")
+        print(f"[Sublink] Saved quantized state to {args.scale_path}")
 
     summary = {
         "method": args.method,
@@ -297,7 +297,7 @@ def _run_single(args: argparse.Namespace) -> None:
                 lm._model.load_state_dict(state["state_dict"], strict=False)
             else:
                 lm._model.load_state_dict(state, strict=False)
-            print(f"[PCA] Loaded quantized state from {args.scale_path}")
+            print(f"[Sublink] Loaded quantized state from {args.scale_path}")
         return
 
     forward_kwargs_list = prepare_calibration_forward_kwargs(args, process_model)

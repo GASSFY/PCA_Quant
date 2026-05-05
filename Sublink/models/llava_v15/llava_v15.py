@@ -20,8 +20,8 @@ from .dataset import (
     preprocess_qwen,
     preprocess_v1,
 )
-from PCA.models.base import BaseModel
-from PCA.utils.registry import MODEL_REGISTRY
+from Sublink.models.base import BaseModel
+from Sublink.utils.registry import MODEL_REGISTRY
 
 try:
     from llava import conversation as conversation_lib
@@ -293,13 +293,13 @@ class LLaVA_v15(BaseModel):
 
     @torch.no_grad()
     def few_shot_data_samples(self, data_samples, pad_side="right", interleave_freq=2):
-        from PCA.models.llava_onevision.llava_onevision import LLaVA_onevision
+        from Sublink.models.llava_onevision.llava_onevision import LLaVA_onevision
 
         return LLaVA_onevision.few_shot_data_samples(self, data_samples, pad_side, interleave_freq)
 
     @torch.no_grad()
     def interleave_data_samples(self, data_samples, pure_text=None, pad_side="right", interleave_freq=2):
-        from PCA.models.llava_onevision.llava_onevision import LLaVA_onevision
+        from Sublink.models.llava_onevision.llava_onevision import LLaVA_onevision
 
         return LLaVA_onevision.interleave_data_samples(self, data_samples, pure_text, pad_side, interleave_freq)
 

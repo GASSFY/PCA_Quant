@@ -8,7 +8,7 @@ from .types import TuneHyperParams
 # Default bounds for beta (proj_log / proj_norm); override via CLI on the study script.
 BETA_LOW_DEFAULT = 1e-4
 BETA_HIGH_DEFAULT = 5.0
-# Integer PCA component count (must match collect_pca_stats / in_features caps inside PCA code).
+# Integer PCA component count (must match collect_pca_stats / in_features caps inside Sublink package code).
 PCA_K_LOW_DEFAULT = 8
 PCA_K_HIGH_DEFAULT = 128
 

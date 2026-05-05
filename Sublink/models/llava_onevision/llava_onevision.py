@@ -20,8 +20,8 @@ try:
 except ImportError as e:
     print(f"LLaVA is not installed. Please install LLaVA to use this model.\nError: {e}")
 
-from PCA.models.base import BaseModel
-from PCA.utils.registry import MODEL_REGISTRY
+from Sublink.models.base import BaseModel
+from Sublink.utils.registry import MODEL_REGISTRY
 
 
 @MODEL_REGISTRY.register("llava_onevision")
