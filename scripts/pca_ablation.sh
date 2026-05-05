@@ -87,8 +87,8 @@ w_group: 128
 # ----- 量化输出 -----
 run_process: true
 pseudo_quant: true
-scale_path: "scale_cache/pca_quant_model.pt"
-results_path: "scale_cache/pca_quant_model.summary.json"
+scale_path: "scale_cache/sublink_model.pt"
+results_path: "scale_cache/sublink_model.summary.json"
 
 # ----- 评估参数（main_eval.py 使用） -----
 tasks: "mmmu_val"
@@ -105,7 +105,7 @@ verbosity: "INFO"
 
 # 先来high_precision_ratio=0，方法选择gate_only。我们先创建对应的目录（以下文字的“对应目录”指的都是此目录），然后，在目录下先复制一份default.yaml
 # 你要用python函数去更新我们复制过来的default.yaml，更改model、model_args、method、high_precision_ratio、low_bit、high_precision_ratio
-# scale_path设置成对应目录下的scale_cache/pca_quant_model.pt、results_path设置成对应目录下scale_cache/pca_quant_model.summary.json"
+# Point scale_path / results_path to this case_dir under scale_cache/ (see paths above).
 # output_path就设置成对应目录下的eval_results
 # 运行main_quant.py --config ${对应目录}/default.yaml
 # 注意在生成量化checkpoint之后，要执行四个评估任务，这个时候你需要再修改tasks，把四个task都跑完，然后将接入放入到对应目录下的eval_results/results_${task}.json

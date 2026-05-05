@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# PCA_Quant 自动化对比实验脚本（简洁版）
+# SubLink automated ablation helper (minimal)
 # - 目标：按模型 / low_bit / ratio / method 组合自动量化并评估
 # - 原则：尽量少的 bash 语法；通过 Python 小片段修改 YAML
 # - 输出：ablation_results/<model>/<low_bit>/<ratio>/<method>/
@@ -169,7 +169,7 @@ run_common_case() {
   cp "$BASE_CONFIG" "${case_dir}/default.yaml"
   local cfg="${case_dir}/default.yaml"
 
-  local scale_path="${case_dir}/scale_cache/pca_quant_model.pt"
+  local scale_path="${case_dir}/scale_cache/sublink_model.pt"
   local summary_path="${case_dir}/scale_cache/summary.json"
 
   # --- 更新量化配置 ---

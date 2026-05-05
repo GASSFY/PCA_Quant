@@ -26,8 +26,8 @@ w_group: 128
 
 run_process: true
 pseudo_quant: true
-scale_path: "scale_cache/pca_quant_model.pt"
-results_path: "scale_cache/pca_quant_model.summary.json"
+scale_path: "scale_cache/sublink_model.pt"
+results_path: "scale_cache/sublink_model.summary.json"
 
 tasks: "mmmu_val"
 limit: null

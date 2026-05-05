@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Optuna (TPE) search over ``beta`` and ``pca_k`` for PCA mixed-precision quantization.
+Optuna (TPE) search over ``beta`` and ``pca_k`` for SubLink mixed-precision quantization.
 
 Requires: pip install optuna (see requirements.txt).
 
@@ -103,7 +103,7 @@ def main() -> None:
     from tune.search_space import PCA_K_HIGH_DEFAULT, PCA_K_LOW_DEFAULT, suggest_hyperparams
     from tune.types import TuneHyperParams
 
-    parser = argparse.ArgumentParser(description="Optuna TPE search for beta and pca_k (PCA_Quant).")
+    parser = argparse.ArgumentParser(description="Optuna TPE search for beta and pca_k (SubLink).")
     parser.add_argument("--config", required=True, help="YAML config (same as main_quant / main_eval).")
     parser.add_argument("--tasks", required=True, help="Comma-separated lmms-eval tasks (e.g. mmmu_val).")
     parser.add_argument(

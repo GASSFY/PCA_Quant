@@ -1,5 +1,5 @@
 """
-PCA mixed-precision quantization entry point.
+SubLink mixed-precision quantization entry point.
 
 Flow:
   1. Load model and wrapper.
@@ -38,7 +38,7 @@ from PCA.quantization.quantize import get_blocks, get_named_linears
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         formatter_class=argparse.RawTextHelpFormatter,
-        description="PCA mixed-precision quantization entry.",
+        description="SubLink mixed-precision quantization entry.",
     )
     parser.add_argument("--config", default="", help="Path to yaml config")
     parser.add_argument("--model", default="llava_onevision")

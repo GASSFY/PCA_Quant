@@ -1,5 +1,5 @@
 """
-PCA_Quant evaluation entry point.
+SubLink evaluation entry point.
 
 Loads a model, optionally restores quantized weights from ``scale_path``, then
 runs lmms-eval tasks and stores the results.
@@ -37,7 +37,7 @@ def _handle_non_serializable(o):
 def parse_eval_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         formatter_class=argparse.RawTextHelpFormatter,
-        description="PCA_Quant evaluation entry.",
+        description="SubLink evaluation entry.",
     )
     parser.add_argument("--config", default="", help="Path to yaml config")
     parser.add_argument("--model", default="llava_onevision")
